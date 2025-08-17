@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:collection/collection.dart';
+import 'package:flutter/material.dart';
 
 import 'package:bmc_cryptographic_flutter/bmc_cryptographic_flutter.dart' as libcrypt;
 import 'package:bmc_cryptographic_flutter/bmc_protocol.dart' as bmcprotocol;
@@ -8,12 +9,228 @@ import 'package:bmc_cryptographic_flutter/bmc_protocol.dart' as bmcprotocol;
 final crypto = libcrypt.BmcCrypto();
 
 void main() {
+  runApp(MyApp());
+}
 
-  funcAliceBobTest();
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'BMC Crypto Demo',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: MyHomePage(title: 'BMC Crypto with Isolate Demo'),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  MyHomePage({Key? key, required this.title}) : super(key: key);
+
+  final String title;
+
+  @override
+  _MyHomePageState createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  String _result = '';
+  bool _isLoading = false;
+
+  void _runTest() async {
+    setState(() {
+      _isLoading = true;
+      _result = 'Running tests...\n';
+    });
+
+    // Test sync functions
+    await _testSyncFunctions();
+    
+    // Test async (isolate) functions
+    await _testAsyncFunctions();
+
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _testSyncFunctions() async {
+    setState(() {
+      _result += '\n=== TESTING SYNC FUNCTIONS ===\n';
+    });
+    
+    final start = DateTime.now();
+    funcAliceBobTest();
+    final end = DateTime.now();
+    
+    setState(() {
+      _result += 'Sync functions completed in: ${end.difference(start).inMilliseconds}ms\n';
+    });
+  }
+
+  Future<void> _testAsyncFunctions() async {
+    setState(() {
+      _result += '\n=== TESTING ASYNC (ISOLATE) FUNCTIONS ===\n';
+    });
+    
+    final start = DateTime.now();
+    await funcAliceBobTestAsync();
+    final end = DateTime.now();
+    
+    setState(() {
+      _result += 'Async functions completed in: ${end.difference(start).inMilliseconds}ms\n';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ElevatedButton(
+              onPressed: _isLoading ? null : _runTest,
+              child: _isLoading 
+                ? CircularProgressIndicator(color: Colors.white)
+                : Text('Run Crypto Tests'),
+            ),
+            SizedBox(height: 16),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(
+                  _result,
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Async version of Alice-Bob test using Isolate functions
+Future<void> funcAliceBobTestAsync() async {
+  print('\n--- ASYNC (ISOLATE) Alice-Bob Test ---');
   
-  // funAES256CBCTest();
-  // funAES256CTRTest();
-  // funAES256ECBTest();
+  // Khai báo context cho Alice và Bob để lưu khóa dài hạn
+  final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  
+  // Init long term key using async functions
+  final aliceKeyResult = await alice.initLongTermKeyAsync();
+  final bobKeyResult = await bob.initLongTermKeyAsync();
+  
+  if (!aliceKeyResult || !bobKeyResult) {
+    print('Failed to initialize long term keys');
+    return;
+  }
+  
+  print('✅ Long term keys initialized using Isolate');
+  
+  // Generate keypairs using async functions
+  final aliceKeypair = await crypto.generateEd25519KeypairAsync();
+  final bobKeypair = await crypto.generateEd25519KeypairAsync();
+  
+  alice.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
+  alice.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
+  bob.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
+  bob.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
+  
+  // Convert Ed25519 to X25519 using async functions
+  final aliceX25519 = await crypto.convertEd25519ToX25519Async(alice.ed25519PublicKey, alice.ed25519PrivateKey);
+  final bobX25519 = await crypto.convertEd25519ToX25519Async(bob.ed25519PublicKey, bob.ed25519PrivateKey);
+  
+  alice.x25519PublicKey.setAll(0, aliceX25519.publicKey);
+  alice.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
+  bob.x25519PublicKey.setAll(0, bobX25519.publicKey);
+  bob.x25519PrivateKey.setAll(0, bobX25519.privateKey);
+  
+  print_hex("alice ed25519 public key (async)", alice.ed25519PublicKey);
+  print_hex("bob ed25519 public key (async)", bob.ed25519PublicKey);
+  
+  // Set peer keys
+  alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
+  bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
+  
+  // Generate ephemeral keys using async functions
+  final aliceEphemeralResult = await alice.generateEphemeralKeyAsync();
+  if (!aliceEphemeralResult) {
+    print("Alice generate ephemeral key failed");
+    return;
+  }
+  
+  // Generate ephemeral keypair for Alice
+  final aliceEphemeral = await crypto.generateX25519KeypairAsync();
+  alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
+  alice.x25519PrivateKeyEphemeral.setAll(0, aliceEphemeral.privateKey);
+  
+  print_hex("alice ephemeral public key (async)", alice.x25519PublicKeyEphemeral);
+  
+  // Sign ephemeral public key using async function
+  final signature = await alice.signEphemeralPublicKeyAsync();
+  print_hex("alice signature (async)", signature);
+  
+  // Calculate secret shared using async function
+  final aliceSecret = await alice.calculateSelfSecretSharedAsync();
+  alice.secretShared.setAll(0, aliceSecret);
+  print_hex("alice secret shared (async)", alice.secretShared);
+  
+  // Derive session key using async function
+  final aliceSessionKey = await alice.deriveSessionSelfKeyAsync();
+  alice.messageCtx.chainKey.setAll(0, aliceSessionKey);
+  print_hex("alice session key (async)", alice.messageCtx.chainKey);
+  
+  // Derive message key using async function
+  final aliceMessageKeyResult = await alice.deriveMessageKeyAsync();
+  alice.messageCtx.chainKey.setAll(0, aliceMessageKeyResult.chainKey);
+  alice.messageCtx.messageKey.setAll(0, aliceMessageKeyResult.messageKey);
+  alice.messageCtx.hmacKey.setAll(0, aliceMessageKeyResult.hmacKey);
+  alice.messageCtx.nonce.setAll(0, aliceMessageKeyResult.nonce);
+  print_hex("alice message key (async)", alice.messageCtx.messageKey);
+  
+  // Encrypt message using async function
+  final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob! (from Isolate)'));
+  final firstCipherText = await alice.encryptMessageAsync(firstMessage);
+  print_hex("alice first cipher text (async)", firstCipherText);
+  
+  // Bob verify ephemeral public key using async function
+  final verifyResult = await bob.verifyEphemeralPublicKeyAsync(signature, alice.x25519PublicKeyEphemeral);
+  if (!verifyResult) {
+    print("Bob verify ephemeral public key failed");
+    return;
+  }
+  print("✅ Bob verify ephemeral public key success (async)");
+  
+  // Calculate peer secret shared using async function
+  final bobSecret = await bob.calculatePeerSecretSharedAsync(alice.x25519PublicKeyEphemeral);
+  bob.secretShared.setAll(0, bobSecret);
+  print_hex("bob secret shared (async)", bob.secretShared);
+  
+  // Derive session key using async function
+  final bobSessionKey = await bob.deriveSessionPeerKeyAsync(alice.x25519PublicKeyEphemeral);
+  bob.messageCtx.chainKey.setAll(0, bobSessionKey);
+  print_hex("bob session key (async)", bob.messageCtx.chainKey);
+  
+  // Derive message key using async function
+  final bobMessageKeyResult = await bob.deriveMessageKeyAsync();
+  bob.messageCtx.chainKey.setAll(0, bobMessageKeyResult.chainKey);
+  bob.messageCtx.messageKey.setAll(0, bobMessageKeyResult.messageKey);
+  bob.messageCtx.hmacKey.setAll(0, bobMessageKeyResult.hmacKey);
+  bob.messageCtx.nonce.setAll(0, bobMessageKeyResult.nonce);
+  print_hex("bob message key (async)", bob.messageCtx.messageKey);
+  
+  // Decrypt message using async function
+  final firstPlainText = await bob.decryptMessageAsync(firstCipherText);
+  print_hex("bob first plain text (async)", firstPlainText);
+  print("✅ bob first plain text (async): ${utf8.decode(firstPlainText)}");
 }
 
 void print_hex(String title, Uint8List data) {

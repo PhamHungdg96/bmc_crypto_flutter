@@ -7,8 +7,8 @@ Một plugin Flutter đa nền tảng, hiệu năng cao, cung cấp các chức 
 
 `bmc_cryptographic_flutter` mang đến một giải pháp đơn giản và an toàn để thực hiện các tác vụ mã hóa và băm phổ biến trực tiếp trong ứng dụng Flutter của bạn. Bằng cách thực thi các thuật toán phức tạp trên mã C gốc, plugin đảm bảo hiệu năng vượt trội so với các triển khai bằng Dart thuần, đồng thời cung cấp một API Dart đơn giản và dễ sử dụng.
 
-## Todo
-Thêm Isolate riêng biệt để không làm ảnh hưởng đến luồng giao diện người dùng (UI thread).
+## Done
+Thêm Isolate riêng biệt để không làm ảnh hưởng đến luồng giao diện người dùng (UI thread). Xem `example/lib/main.dart` hàm `funcAliceBobTestAsync`
 
 ## Tính năng
 

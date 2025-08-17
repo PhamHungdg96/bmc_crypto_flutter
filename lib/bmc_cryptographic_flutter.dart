@@ -1,5 +1,7 @@
 import 'dart:ffi';
 import 'dart:io' show Platform;
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart'; // Để sử dụng compute
 
@@ -472,6 +474,245 @@ class BmcCrypto {
   int clearHmacSha256(Pointer<CryptoHmacSha256Ctx> ctx) {
     return _bmcProtocolHmacSha256Clear(ctx);
   }
+
+  // ==================== ISOLATE FUNCTIONS ====================
+  
+  /// Encrypt data in isolate to avoid blocking UI thread
+  Future<Uint8List> encryptAsync(Uint8List plaintext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
+    final params = _EncryptParams(plaintext, messageKey, iv, macKey);
+    return await compute(_encryptIsolate, params);
+  }
+
+  /// Decrypt data in isolate to avoid blocking UI thread  
+  Future<Uint8List> decryptAsync(Uint8List ciphertext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
+    final params = _DecryptParams(ciphertext, messageKey, iv, macKey);
+    return await compute(_decryptIsolate, params);
+  }
+
+  /// Generate Ed25519 keypair in isolate
+  Future<_KeypairResult> generateEd25519KeypairAsync() async {
+    return await compute(_generateEd25519KeypairIsolate, null);
+  }
+
+  /// Generate X25519 keypair in isolate
+  Future<_KeypairResult> generateX25519KeypairAsync() async {
+    return await compute(_generateX25519KeypairIsolate, null);
+  }
+
+  /// Convert Ed25519 to X25519 in isolate
+  Future<_KeypairResult> convertEd25519ToX25519Async(Uint8List ed25519PublicKey, Uint8List ed25519PrivateKey) async {
+    final params = _ConvertKeyParams(ed25519PublicKey, ed25519PrivateKey);
+    return await compute(_convertEd25519ToX25519Isolate, params);
+  }
+
+  /// Calculate secret in isolate
+  Future<Uint8List> calculateSecretAsync(Uint8List privateKey, Uint8List publicKey) async {
+    final params = _CalculateSecretParams(privateKey, publicKey);
+    return await compute(_calculateSecretIsolate, params);
+  }
+
+  /// Sign message in isolate
+  Future<Uint8List> signAsync(Uint8List message, Uint8List privateKey) async {
+    final params = _SignParams(message, privateKey);
+    return await compute(_signIsolate, params);
+  }
+
+  /// Verify signature in isolate
+  Future<bool> verifyAsync(Uint8List publicKey, Uint8List message, Uint8List signature) async {
+    final params = _VerifyParams(publicKey, message, signature);
+    return await compute(_verifyIsolate, params);
+  }
+
+  /// Derive session keys in isolate
+  Future<_SessionKeysResult> deriveSessionKeysAsync(Uint8List sharedSecret, Uint8List ephemeralPk, Uint8List xPkPeer) async {
+    final params = _DeriveSessionKeysParams(sharedSecret, ephemeralPk, xPkPeer);
+    return await compute(_deriveSessionKeysIsolate, params);
+  }
+
+  /// Derive message keys in isolate  
+  Future<_MessageKeysResult> deriveMessageKeysAsync(Uint8List chainKey) async {
+    return await compute(_deriveMessageKeysIsolate, chainKey);
+  }
+}
+
+// ==================== ISOLATE PARAMETER CLASSES ====================
+
+class _EncryptParams {
+  final Uint8List plaintext;
+  final Uint8List messageKey;
+  final Uint8List iv;
+  final Uint8List macKey;
+  
+  _EncryptParams(this.plaintext, this.messageKey, this.iv, this.macKey);
+}
+
+class _DecryptParams {
+  final Uint8List ciphertext;
+  final Uint8List messageKey;
+  final Uint8List iv;
+  final Uint8List macKey;
+  
+  _DecryptParams(this.ciphertext, this.messageKey, this.iv, this.macKey);
+}
+
+class _ConvertKeyParams {
+  final Uint8List ed25519PublicKey;
+  final Uint8List ed25519PrivateKey;
+  
+  _ConvertKeyParams(this.ed25519PublicKey, this.ed25519PrivateKey);
+}
+
+class _CalculateSecretParams {
+  final Uint8List privateKey;
+  final Uint8List publicKey;
+  
+  _CalculateSecretParams(this.privateKey, this.publicKey);
+}
+
+class _SignParams {
+  final Uint8List message;
+  final Uint8List privateKey;
+  
+  _SignParams(this.message, this.privateKey);
+}
+
+class _VerifyParams {
+  final Uint8List publicKey;
+  final Uint8List message;
+  final Uint8List signature;
+  
+  _VerifyParams(this.publicKey, this.message, this.signature);
+}
+
+class _DeriveSessionKeysParams {
+  final Uint8List sharedSecret;
+  final Uint8List ephemeralPk;
+  final Uint8List xPkPeer;
+  
+  _DeriveSessionKeysParams(this.sharedSecret, this.ephemeralPk, this.xPkPeer);
+}
+
+// ==================== ISOLATE RESULT CLASSES ====================
+
+class _KeypairResult {
+  final Uint8List publicKey;
+  final Uint8List privateKey;
+  
+  _KeypairResult(this.publicKey, this.privateKey);
+}
+
+class _SessionKeysResult {
+  final Uint8List rootKey;
+  final Uint8List sendChainKey;
+  final Uint8List recvChainKey;
+  
+  _SessionKeysResult(this.rootKey, this.sendChainKey, this.recvChainKey);
+}
+
+class _MessageKeysResult {
+  final Uint8List chainKey;
+  final Uint8List messageKey;
+  final Uint8List nextChainKey;
+  final Uint8List macKey;
+  final Uint8List iv;
+  
+  _MessageKeysResult(this.chainKey, this.messageKey, this.nextChainKey, this.macKey, this.iv);
+}
+
+// ==================== ISOLATE WORKER FUNCTIONS ====================
+
+/// Isolate worker function for encryption
+Uint8List _encryptIsolate(_EncryptParams params) {
+  final crypto = BmcCrypto();
+  return crypto.encrypt(params.plaintext, params.messageKey, params.iv, params.macKey);
+}
+
+/// Isolate worker function for decryption
+Uint8List _decryptIsolate(_DecryptParams params) {
+  final crypto = BmcCrypto();
+  return crypto.decrypt(params.ciphertext, params.messageKey, params.iv, params.macKey);
+}
+
+/// Isolate worker function for Ed25519 keypair generation
+_KeypairResult _generateEd25519KeypairIsolate(void _) {
+  final crypto = BmcCrypto();
+  final publicKey = Uint8List(BMC_PROTOCOL_PKLEN);
+  final privateKey = Uint8List(BMC_PROTOCOL_SKLEN);
+  
+  crypto.generateEd25519Keypair(publicKey, privateKey);
+  return _KeypairResult(publicKey, privateKey);
+}
+
+/// Isolate worker function for X25519 keypair generation
+_KeypairResult _generateX25519KeypairIsolate(void _) {
+  final crypto = BmcCrypto();
+  final publicKey = Uint8List(BMC_PROTOCOL_x25519_KEYLEN);
+  final privateKey = Uint8List(BMC_PROTOCOL_x25519_KEYLEN);
+  
+  crypto.generateX25519Keypair(publicKey, privateKey);
+  return _KeypairResult(publicKey, privateKey);
+}
+
+/// Isolate worker function for Ed25519 to X25519 conversion
+_KeypairResult _convertEd25519ToX25519Isolate(_ConvertKeyParams params) {
+  final crypto = BmcCrypto();
+  final x25519PublicKey = Uint8List(BMC_PROTOCOL_x25519_KEYLEN);
+  final x25519PrivateKey = Uint8List(BMC_PROTOCOL_x25519_KEYLEN);
+  
+  crypto.convertEd25519ToX25519(params.ed25519PublicKey, params.ed25519PrivateKey, x25519PublicKey, x25519PrivateKey);
+  return _KeypairResult(x25519PublicKey, x25519PrivateKey);
+}
+
+/// Isolate worker function for secret calculation
+Uint8List _calculateSecretIsolate(_CalculateSecretParams params) {
+  final crypto = BmcCrypto();
+  final secret = Uint8List(BMC_PROTOCOL_x25519_KEYLEN);
+  
+  crypto.caculateSecret(secret, params.privateKey, params.publicKey);
+  return secret;
+}
+
+/// Isolate worker function for signing
+Uint8List _signIsolate(_SignParams params) {
+  final crypto = BmcCrypto();
+  final signature = Uint8List(BMC_PROTOCOL_SIGLEN);
+  
+  crypto.sign(params.message, params.privateKey, signature);
+  return signature;
+}
+
+/// Isolate worker function for verification
+bool _verifyIsolate(_VerifyParams params) {
+  final crypto = BmcCrypto();
+  try {
+    final result = crypto.verify(params.publicKey, params.message, params.signature);
+    return result == 0; // 0 means success in verification
+  } catch (e) {
+    return false;
+  }
+}
+
+/// Isolate worker function for session key derivation
+_SessionKeysResult _deriveSessionKeysIsolate(_DeriveSessionKeysParams params) {
+  final crypto = BmcCrypto();
+  final rootKey = Uint8List(BMC_PROTOCOL_CHAIN_KEY_LEN);
+  final sendChainKey = Uint8List(BMC_PROTOCOL_CHAIN_KEY_LEN);
+  final recvChainKey = Uint8List(BMC_PROTOCOL_CHAIN_KEY_LEN);
+  
+  crypto.deriveSessionKeys(params.sharedSecret, params.ephemeralPk, params.xPkPeer, rootKey, sendChainKey, recvChainKey);
+  return _SessionKeysResult(rootKey, sendChainKey, recvChainKey);
+}
+
+/// Isolate worker function for message key derivation
+_MessageKeysResult _deriveMessageKeysIsolate(Uint8List chainKey) {
+  final crypto = BmcCrypto();
+  final messageKey = Uint8List(BMC_PROTOCOL_MESSAGE_KEY_LEN);
+  final nextChainKey = Uint8List(BMC_PROTOCOL_CHAIN_KEY_LEN);
+  final macKey = Uint8List(BMC_PROTOCOL_HMAC_KEY_LEN);
+  final iv = Uint8List(BMC_PROTOCOL_NONCE_LEN);
+  
+  crypto.deriveMessageKeys(chainKey, messageKey, nextChainKey, macKey, iv);
+  return _MessageKeysResult(chainKey, messageKey, nextChainKey, macKey, iv);
 }
 
 // Extension helper để quản lý bộ nhớ dễ dàng hơn
