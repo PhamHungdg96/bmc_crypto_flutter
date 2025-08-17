@@ -3,101 +3,9 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart';
 
 import 'package:bmc_cryptographic_flutter/bmc_cryptographic_flutter.dart' as libcrypt;
+import 'package:bmc_cryptographic_flutter/bmc_protocol.dart' as bmcprotocol;
 
 final crypto = libcrypt.BmcCrypto();
-
-
-
-class BmcProtocolMessageCtx{
-  final Uint8List chainKey = Uint8List(libcrypt.BMC_PROTOCOL_CHAIN_KEY_LEN);
-  final Uint8List messageKey = Uint8List(libcrypt.BMC_PROTOCOL_MESSAGE_KEY_LEN);
-  final Uint8List hmacKey = Uint8List(libcrypt.BMC_PROTOCOL_HMAC_KEY_LEN);
-  final Uint8List nonce = Uint8List(libcrypt.BMC_PROTOCOL_NONCE_LEN);
-
-}
-
-class BmcProtocolContext{
-  //long term key
-  final Uint8List ed25519PrivateKey = Uint8List(libcrypt.BMC_PROTOCOL_SKLEN);
-  final Uint8List ed25519PublicKey = Uint8List(libcrypt.BMC_PROTOCOL_PKLEN);
-  final Uint8List x25519PrivateKey = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  final Uint8List x25519PublicKey = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  //peer key
-  final Uint8List ed25519PublicKeyPeer = Uint8List(libcrypt.BMC_PROTOCOL_PKLEN);
-  final Uint8List x25519PublicKeyPeer = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  //ephemeral key
-  final Uint8List x25519PrivateKeyEphemeral = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  final Uint8List x25519PublicKeyEphemeral = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  //secret_shared
-  final Uint8List secretShared = Uint8List(libcrypt.BMC_PROTOCOL_x25519_KEYLEN);
-  //session_key
-  BmcProtocolMessageCtx messageCtx = BmcProtocolMessageCtx();
-
-  //init long term key
-  int initLongTermKey(){
-    var ret = crypto.generateEd25519Keypair(ed25519PublicKey, ed25519PrivateKey);
-    if(ret != 0){
-      return -1;
-    }else{
-      ret = crypto.convertEd25519ToX25519(ed25519PublicKey, ed25519PrivateKey, x25519PublicKey, x25519PrivateKey);
-      if(ret != 0){
-        return -1;
-      }
-    }
-    return 0;
-  }
-
-  //set peer key
-  int setPeerKey(Uint8List ed25519PublicKeyPeer, Uint8List x25519PublicKeyPeer){
-    ed25519PublicKeyPeer.setAll(0, ed25519PublicKeyPeer);
-    x25519PublicKeyPeer.setAll(0, x25519PublicKeyPeer);
-    return 0;
-  }
-
-  //generate ephemeral key
-  int generateEphemeralKey(){
-    var ret = crypto.generateX25519Keypair(x25519PublicKeyEphemeral, x25519PrivateKeyEphemeral);
-    if(ret != 0){
-      return -1;
-    }
-    return ret;
-  }
-  //sign ephemeral public key
-  Uint8List signEphemeralPublicKey(){
-    final signature = Uint8List(libcrypt.BMC_PROTOCOL_SIGLEN);
-    var ret = crypto.sign(x25519PublicKeyEphemeral, ed25519PrivateKey, signature);
-    if(ret != 0){
-      return Uint8List(0);
-    }
-    return signature;
-  }
-  //verify ephemeral public key
-  int verifyEphemeralPublicKey(Uint8List signature, Uint8List x25519PublicKeyEphemeralPeer){
-    var ret = crypto.verify(ed25519PublicKeyPeer, x25519PublicKeyEphemeralPeer, signature);
-    if(ret != 0){
-      return -1;
-    }
-    return ret;
-  }
-
-  //caculate secret shared
-  int caculateSelfSecretShared(){
-    var ret = crypto.caculateSecret(secretShared, x25519PrivateKeyEphemeral, x25519PublicKeyPeer);
-    if(ret != 0){
-      return -1;
-    }
-    return ret;
-  }
-
-  //caculate peer secret shared
-  int caculatePeerSecretShared(Uint8List x25519PublicKeyEphemeralPeer){
-    var ret = crypto.caculateSecret(secretShared, x25519PrivateKey, x25519PublicKeyEphemeralPeer);
-    if(ret != 0){
-      return -1;
-    }
-    return ret;
-  }
-}
 
 void main() {
 
@@ -108,45 +16,81 @@ void main() {
   // funAES256ECBTest();
 }
 
+void print_hex(String title, Uint8List data) {
+  final buffer = StringBuffer();
+  for (int i = 0; i < data.length; i++) {
+    buffer.write(data[i].toRadixString(16).padLeft(2, '0'));
+  }
+  print("$title: ${buffer.toString()}");
+}
+
 void funcAliceBobTest(){
   // Khai báo context cho Alice và Bob để lưu khóa dài hạn
-  final alice = BmcProtocolContext();
-  final bob = BmcProtocolContext();
-  //init long term key
+  final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  //init long term key and publist public key to server
   alice.initLongTermKey();
   bob.initLongTermKey();
   //print long term key
-  print("alice ed25519 public key: ${alice.ed25519PublicKey}");
-  print("alice ed25519 private key: ${alice.ed25519PrivateKey}");
-  print("alice x25519 public key: ${alice.x25519PublicKey}");
-  print("alice x25519 private key: ${alice.x25519PrivateKey}");
-  print("bob ed25519 public key: ${bob.ed25519PublicKey}");
-  print("bob ed25519 private key: ${bob.ed25519PrivateKey}");
-  print("bob x25519 public key: ${bob.x25519PublicKey}");
-  print("bob x25519 private key: ${bob.x25519PrivateKey}");
-  //set peer key
+  print_hex("alice ed25519 public key", alice.ed25519PublicKey);
+  print_hex("alice ed25519 private key", alice.ed25519PrivateKey);
+  print_hex("alice x25519 public key", alice.x25519PublicKey);
+  print_hex("alice x25519 private key", alice.x25519PrivateKey);
+  print_hex("bob ed25519 public key", bob.ed25519PublicKey);
+  print_hex("bob ed25519 private key", bob.ed25519PrivateKey);
+  print_hex("bob x25519 public key", bob.x25519PublicKey);
+  print_hex("bob x25519 private key", bob.x25519PrivateKey);
+  //set peer key from server
   alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
   bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
 
   //Alice send to Bob
   //generate ephemeral key
-  alice.generateEphemeralKey();
+  if(alice.generateEphemeralKey() != 0){
+    print("Alice generate ephemeral key failed");
+    return;
+  }
   //print ephemeral key
-  print("alice ephemeral public key: ${alice.x25519PublicKeyEphemeral}");
-  print("alice ephemeral private key: ${alice.x25519PrivateKeyEphemeral}");
+  print_hex("alice ephemeral public key", alice.x25519PublicKeyEphemeral);
+  print_hex("alice ephemeral private key", alice.x25519PrivateKeyEphemeral);
   //sign ephemeral public key
   final signature = alice.signEphemeralPublicKey();
-  print("alice signature: ${signature}");
+  print_hex("alice signature", signature);
   //caculate self secret shared
   alice.caculateSelfSecretShared();
-  print("alice secret shared: ${alice.secretShared}");
-  
+  print_hex("alice secret shared", alice.secretShared);
+  alice.deriveSessionSelfKey();
+  print_hex("alice session key", alice.messageCtx.chainKey);
+  alice.deriveMessageKey();
+  print_hex("alice message key", alice.messageCtx.messageKey);
+  //Alice send to Bob (first message include ephemeral public key;signature;first cipher text;hmacsha256 of first cipher text)
+  final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob!'));
+  final firstCipherText = alice.encryptMessage(firstMessage);
+  print_hex("alice first cipher text", firstCipherText);
+
+  //Bob verify ephemeral public key
+  if(bob.verifyEphemeralPublicKey(signature, alice.x25519PublicKeyEphemeral) != 0){
+    print("Bob verify ephemeral public key failed");
+    return;
+  }
+  print("Bob verify ephemeral public key success");
+  //caculate peer secret shared
+  bob.caculatePeerSecretShared(alice.x25519PublicKeyEphemeral);
+  print_hex("bob secret shared", bob.secretShared);
   //derive session key
   
-  //sign ephemeral public key
- 
+  bob.deriveSessionPeerKey(alice.x25519PublicKeyEphemeral);
+  print_hex("bob session key", bob.messageCtx.chainKey);
+  //derive message key
+  
+  bob.deriveMessageKey();
+  print_hex("bob message key", bob.messageCtx.messageKey);
+  //decrypt first message
+  final firstPlainText = bob.decryptMessage(firstCipherText);
+  print_hex("bob first plain text", firstPlainText);
+  print("bob first plain text: ${utf8.decode(firstPlainText)}");
+  
 }
-
 
 void funAES256CBCTest(){
   final key = Uint8List.fromList([

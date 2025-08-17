@@ -80,6 +80,14 @@ typedef _BmcProtocolHmacSha256FinishDartFunc = int Function(Pointer<CryptoHmacSh
 typedef _BmcProtocolHmacSha256ClearFunc = Int32  Function(Pointer<CryptoHmacSha256Ctx>);
 typedef _BmcProtocolHmacSha256ClearDartFunc = int Function(Pointer<CryptoHmacSha256Ctx>);
 
+//for bmc_protocol_encrypt
+typedef _BmcProtocolEncryptFunc = Int32  Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolEncryptDartFunc = int Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>,int, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+//for bmc_protocol_decrypt
+typedef _BmcProtocolDecryptFunc = Int32  Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolDecryptDartFunc = int Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
 /// Lớp API chính để tương tác với thư viện mật mã native.
 class BmcCrypto {
   /// Singleton pattern để đảm bảo chỉ có một instance của FFI bridge.
@@ -106,6 +114,9 @@ class BmcCrypto {
   late final _BmcProtocolHmacSha256FinishDartFunc _bmcProtocolHmacSha256Finish;
   late final _BmcProtocolHmacSha256ClearDartFunc _bmcProtocolHmacSha256Clear;
 
+  late final _BmcProtocolEncryptDartFunc _bmcProtocolEncrypt;
+  late final _BmcProtocolDecryptDartFunc _bmcProtocolDecrypt;
+
 
   BmcCrypto._internal() {
     _dylib = _loadDylib();
@@ -127,10 +138,10 @@ class BmcCrypto {
     _bmcProtocolHmacSha256Update = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256UpdateFunc>>('bmc_protocol_hmac_sha256_update').asFunction<_BmcProtocolHmacSha256UpdateDartFunc>();
     _bmcProtocolHmacSha256Finish = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256FinishFunc>>('bmc_protocol_hmac_sha256_finish').asFunction<_BmcProtocolHmacSha256FinishDartFunc>();
     _bmcProtocolHmacSha256Clear = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256ClearFunc>>('bmc_protocol_hmac_sha256_cleanup').asFunction<_BmcProtocolHmacSha256ClearDartFunc>();
-
+    _bmcProtocolEncrypt = _dylib.lookup<NativeFunction<_BmcProtocolEncryptFunc>>('bmc_protocol_encrypt').asFunction<_BmcProtocolEncryptDartFunc>();
+    _bmcProtocolDecrypt = _dylib.lookup<NativeFunction<_BmcProtocolDecryptFunc>>('bmc_protocol_decrypt').asFunction<_BmcProtocolDecryptDartFunc>();
     _bmcCryptInit();
   }
-
 
 
   DynamicLibrary _loadDylib() {
@@ -139,6 +150,72 @@ class BmcCrypto {
     if (Platform.isLinux) return DynamicLibrary.open('bmc_crypt.so');
     if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
     throw UnsupportedError('Unsupported platform');
+  }
+
+  Uint8List encrypt(Uint8List plaintext, Uint8List messageKey, Uint8List iv, Uint8List macKey) {
+    assert(plaintext.isNotEmpty);
+    assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
+    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+    assert(macKey.length == BMC_PROTOCOL_HMAC_KEY_LEN);
+
+    final plaintextPtr = plaintext.allocatePointer();
+    final messageKeyPtr = messageKey.allocatePointer();
+    final ivPtr = iv.allocatePointer();
+    final macKeyPtr = macKey.allocatePointer();
+    final ciphertextPtr = calloc<Pointer<Uint8>>();
+    final ciphertextLenPtr = calloc<Size>();
+    final ret = _bmcProtocolEncrypt(ciphertextPtr, ciphertextLenPtr, plaintextPtr, plaintext.length, messageKeyPtr, ivPtr, macKeyPtr);
+    if (ret > -1) {
+      final ciphertext = ciphertextPtr.value.asTypedList(ciphertextLenPtr.value);
+      calloc.free(plaintextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(macKeyPtr);
+      calloc.free(ciphertextPtr);
+      calloc.free(ciphertextLenPtr);
+      return ciphertext;
+    } else {
+      calloc.free(plaintextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(macKeyPtr);
+      calloc.free(ciphertextPtr);
+      calloc.free(ciphertextLenPtr);
+      throw Exception('Encrypt failed: $ret');
+    }
+  }
+
+  Uint8List decrypt(Uint8List ciphertext, Uint8List messageKey, Uint8List iv, Uint8List macKey) {
+    assert(ciphertext.isNotEmpty);
+    assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
+    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+    assert(macKey.length == BMC_PROTOCOL_HMAC_KEY_LEN);
+
+    final ciphertextPtr = ciphertext.allocatePointer();
+    final messageKeyPtr = messageKey.allocatePointer();
+    final ivPtr = iv.allocatePointer();
+    final macKeyPtr = macKey.allocatePointer();
+    final plaintextPtr = calloc<Pointer<Uint8>>();
+    final plaintextLenPtr = calloc<Size>();
+    final ret = _bmcProtocolDecrypt(plaintextPtr, plaintextLenPtr, ciphertextPtr, ciphertext.length, messageKeyPtr, ivPtr, macKeyPtr);
+    if (ret > -1) {
+      final plaintext = plaintextPtr.value.asTypedList(plaintextLenPtr.value);
+      calloc.free(ciphertextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(macKeyPtr);
+      calloc.free(plaintextPtr);
+      calloc.free(plaintextLenPtr);
+      return plaintext;
+    } else {
+      calloc.free(ciphertextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(macKeyPtr);
+      calloc.free(plaintextPtr);
+      calloc.free(plaintextLenPtr);
+      throw Exception('Decrypt failed: $ret');
+    }
   }
 
   Pointer<CryptoAesCtx> initAesCtx(Uint8List key, int mode, int isEnc, Uint8List iv) {
