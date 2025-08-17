@@ -147,9 +147,9 @@ class BmcCrypto {
 
 
   DynamicLibrary _loadDylib() {
-    if (Platform.isAndroid) return DynamicLibrary.open('bmc_crypt.so');
+    if (Platform.isAndroid) return DynamicLibrary.open('libbmc_crypt.so');
     if (Platform.isWindows) return DynamicLibrary.open('bmc_crypt.dll');
-    if (Platform.isLinux) return DynamicLibrary.open('bmc_crypt.so');
+    if (Platform.isLinux) return DynamicLibrary.open('libbmc_crypt.so');
     if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
     throw UnsupportedError('Unsupported platform');
   }
