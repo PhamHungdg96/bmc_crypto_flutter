@@ -4,11 +4,23 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart'; // Để sử dụng compute
 
 final class CryptoAesCtx extends Opaque {}
+final class CryptoHmacSha256Ctx extends Opaque {}
 
 const int AES_MODE_ECB = 0;
 const int AES_MODE_CBC = 1;
 const int AES_MODE_CTR = 2;
 const int AES_MODE_GCM = 3;
+
+const int BMC_PROTOCOL_KEY_LEN = 32;
+const int BMC_PROTOCOL_NONCE_LEN = 16;
+const int BMC_PROTOCOL_CHAIN_KEY_LEN = 32;
+const int BMC_PROTOCOL_MESSAGE_KEY_LEN = 32;
+const int BMC_PROTOCOL_HMAC_KEY_LEN = 32;
+
+const int BMC_PROTOCOL_PKLEN = 32;
+const int BMC_PROTOCOL_SKLEN = 64;
+const int BMC_PROTOCOL_x25519_KEYLEN = 32;
+const int BMC_PROTOCOL_SIGLEN = 64;
 
 // --- khởi tạo thư viện và random
 typedef _BmcCryptInitFunc = Void Function();
@@ -30,6 +42,44 @@ typedef _BmcCryptAesFinishDartFunc = int Function(Pointer<CryptoAesCtx>, Pointer
 typedef _BmcCryptAesClearFunc = Int32 Function(Pointer<CryptoAesCtx>);
 typedef _BmcCryptAesClearDartFunc = int Function(Pointer<CryptoAesCtx>);
 
+//for bmc_protocol
+typedef _BmcProtocolDeriveSessionKeysFunc = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolDeriveSessionKeysDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolDeriveMessageKeysFunc = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolDeriveMessageKeysDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolConvertEd25519ToX25519Func = Int32  Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolConvertEd25519ToX25519DartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolGenerateEd25519KeypairFunc = Int32  Function(Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolGenerateEd25519KeypairDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolGenerateX25519KeypairFunc = Int32  Function(Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolGenerateX25519KeypairDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolCaculateSecretFunc = Int32  Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolCaculateSecretDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolSignFunc = Int32  Function(Pointer<Uint8>, Pointer<Uint64>, Pointer<Uint8>, Uint64, Pointer<Uint8>);
+typedef _BmcProtocolSignDartFunc = int Function(Pointer<Uint8>, Pointer<Uint64>, Pointer<Uint8>, int, Pointer<Uint8>);
+
+typedef _BmcProtocolVerifyFunc = Int32  Function(Pointer<Uint8>, Pointer<Uint8>, Uint64, Pointer<Uint8>);
+typedef _BmcProtocolVerifyDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, int, Pointer<Uint8>);
+
+//for hmacsha256
+typedef _BmcProtocolHmacSha256InitFunc = Int32  Function(Pointer<Pointer<CryptoHmacSha256Ctx>>, Pointer<Uint8>, Size);
+typedef _BmcProtocolHmacSha256InitDartFunc = int Function(Pointer<Pointer<CryptoHmacSha256Ctx>>, Pointer<Uint8>, int);
+
+typedef _BmcProtocolHmacSha256UpdateFunc = Int32  Function(Pointer<CryptoHmacSha256Ctx>, Pointer<Uint8>, Size);
+typedef _BmcProtocolHmacSha256UpdateDartFunc = int Function(Pointer<CryptoHmacSha256Ctx>, Pointer<Uint8>, int);
+
+typedef _BmcProtocolHmacSha256FinishFunc = Int32  Function(Pointer<CryptoHmacSha256Ctx>, Pointer<Uint8>);
+typedef _BmcProtocolHmacSha256FinishDartFunc = int Function(Pointer<CryptoHmacSha256Ctx>, Pointer<Uint8>);
+
+typedef _BmcProtocolHmacSha256ClearFunc = Int32  Function(Pointer<CryptoHmacSha256Ctx>);
+typedef _BmcProtocolHmacSha256ClearDartFunc = int Function(Pointer<CryptoHmacSha256Ctx>);
+
 /// Lớp API chính để tương tác với thư viện mật mã native.
 class BmcCrypto {
   /// Singleton pattern để đảm bảo chỉ có một instance của FFI bridge.
@@ -43,6 +93,18 @@ class BmcCrypto {
   late final _BmcCryptAesFinishDartFunc _bmcCryptAesFinish;
   late final _BmcCryptAesClearDartFunc _bmcCryptAesClear;
 
+  late final _BmcProtocolDeriveSessionKeysDartFunc _bmcProtocolDeriveSessionKeys;
+  late final _BmcProtocolDeriveMessageKeysDartFunc _bmcProtocolDeriveMessageKeys;
+  late final _BmcProtocolConvertEd25519ToX25519DartFunc _bmcProtocolConvertEd25519ToX25519;
+  late final _BmcProtocolGenerateEd25519KeypairDartFunc _bmcProtocolGenerateEd25519Keypair;
+  late final _BmcProtocolGenerateX25519KeypairDartFunc _bmcProtocolGenerateX25519Keypair;
+  late final _BmcProtocolCaculateSecretDartFunc _bmcProtocolCaculateSecret;
+  late final _BmcProtocolSignDartFunc _bmcProtocolSign;
+  late final _BmcProtocolVerifyDartFunc _bmcProtocolVerify;
+  late final _BmcProtocolHmacSha256InitDartFunc _bmcProtocolHmacSha256Init;
+  late final _BmcProtocolHmacSha256UpdateDartFunc _bmcProtocolHmacSha256Update;
+  late final _BmcProtocolHmacSha256FinishDartFunc _bmcProtocolHmacSha256Finish;
+  late final _BmcProtocolHmacSha256ClearDartFunc _bmcProtocolHmacSha256Clear;
 
 
   BmcCrypto._internal() {
@@ -52,7 +114,20 @@ class BmcCrypto {
     _bmcCryptAesUpdate = _dylib.lookup<NativeFunction<_BmcCryptAesUpdateFunc>>('crypto_core_aes_update').asFunction<_BmcCryptAesUpdateDartFunc>();
     _bmcCryptAesFinish = _dylib.lookup<NativeFunction<_BmcCryptAesFinishFunc>>('crypto_core_aes_finish').asFunction<_BmcCryptAesFinishDartFunc>();
     _bmcCryptAesClear = _dylib.lookup<NativeFunction<_BmcCryptAesClearFunc>>('crypto_core_aes_cleanup').asFunction<_BmcCryptAesClearDartFunc>();
-    
+
+    _bmcProtocolDeriveSessionKeys = _dylib.lookup<NativeFunction<_BmcProtocolDeriveSessionKeysFunc>>('bmc_protocol_derive_session_keys').asFunction<_BmcProtocolDeriveSessionKeysDartFunc>();
+    _bmcProtocolDeriveMessageKeys = _dylib.lookup<NativeFunction<_BmcProtocolDeriveMessageKeysFunc>>('bmc_protocol_derive_message_keys').asFunction<_BmcProtocolDeriveMessageKeysDartFunc>();
+    _bmcProtocolConvertEd25519ToX25519 = _dylib.lookup<NativeFunction<_BmcProtocolConvertEd25519ToX25519Func>>('bmc_protocol_convert_ed25519_to_x25519').asFunction<_BmcProtocolConvertEd25519ToX25519DartFunc>();
+    _bmcProtocolGenerateEd25519Keypair = _dylib.lookup<NativeFunction<_BmcProtocolGenerateEd25519KeypairFunc>>('bmc_protocol_generate_ed25519_keypair').asFunction<_BmcProtocolGenerateEd25519KeypairDartFunc>();
+    _bmcProtocolGenerateX25519Keypair = _dylib.lookup<NativeFunction<_BmcProtocolGenerateX25519KeypairFunc>>('bmc_protocol_generate_x25519_keypair').asFunction<_BmcProtocolGenerateX25519KeypairDartFunc>();
+    _bmcProtocolCaculateSecret = _dylib.lookup<NativeFunction<_BmcProtocolCaculateSecretFunc>>('bmc_protocol_caculate_secret').asFunction<_BmcProtocolCaculateSecretDartFunc>();
+    _bmcProtocolSign = _dylib.lookup<NativeFunction<_BmcProtocolSignFunc>>('bmc_protocol_sign').asFunction<_BmcProtocolSignDartFunc>();
+    _bmcProtocolVerify = _dylib.lookup<NativeFunction<_BmcProtocolVerifyFunc>>('bmc_protocol_verify').asFunction<_BmcProtocolVerifyDartFunc>();
+    _bmcProtocolHmacSha256Init = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256InitFunc>>('bmc_protocol_hmac_sha256_init').asFunction<_BmcProtocolHmacSha256InitDartFunc>();
+    _bmcProtocolHmacSha256Update = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256UpdateFunc>>('bmc_protocol_hmac_sha256_update').asFunction<_BmcProtocolHmacSha256UpdateDartFunc>();
+    _bmcProtocolHmacSha256Finish = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256FinishFunc>>('bmc_protocol_hmac_sha256_finish').asFunction<_BmcProtocolHmacSha256FinishDartFunc>();
+    _bmcProtocolHmacSha256Clear = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256ClearFunc>>('bmc_protocol_hmac_sha256_cleanup').asFunction<_BmcProtocolHmacSha256ClearDartFunc>();
+
     _bmcCryptInit();
   }
 
@@ -67,18 +142,15 @@ class BmcCrypto {
   }
 
   Pointer<CryptoAesCtx> initAesCtx(Uint8List key, int mode, int isEnc, Uint8List iv) {
-    final keyPtr = malloc<Uint8>(key.length);
-    keyPtr.asTypedList(key.length).setAll(0, key);
+    final keyPtr = key.allocatePointer();
+    final ivPtr = iv.allocatePointer();
 
-    final ivPtr = malloc<Uint8>(iv.length);
-    ivPtr.asTypedList(iv.length).setAll(0, iv);
-
-    final ctxPtr = malloc<Pointer<CryptoAesCtx>>();
+    final ctxPtr = calloc<Pointer<CryptoAesCtx>>();
 
     final ret = _bmcCryptAesInit(ctxPtr, keyPtr, key.length, mode, isEnc, ivPtr, iv.length);
 
-    malloc.free(keyPtr);
-    malloc.free(ivPtr);
+    calloc.free(keyPtr);
+    calloc.free(ivPtr);
 
     if (ret != 0) {
       throw Exception('AES init failed: $ret');
@@ -87,38 +159,243 @@ class BmcCrypto {
   }
 
   int updateAes(Pointer<CryptoAesCtx> ctx, Uint8List out, Uint8List inData) {
-    final outPtr = malloc<Uint8>(out.length);
-    final inPtr = malloc<Uint8>(inData.length);
-    inPtr.asTypedList(inData.length).setAll(0, inData);
+    final outPtr = out.allocatePointer();
+    final inPtr = inData.allocatePointer();
 
-    final ret = _bmcCryptAesUpdate(ctx, outPtr, inPtr, inData.length);
-    // print(outPtr.asTypedList(out.length));
-    out.setAll(0, outPtr.asTypedList(out.length));
+    final ret = _bmcCryptAesUpdate(ctx, outPtr, inPtr, inData.length);;
+    if (ret > 0) {
+      out.setAll(0, outPtr.asTypedList(ret));
+    }
+    if (ret == -1){
+      throw Exception('AES update failed: $ret');
+    }
 
-    malloc.free(outPtr);
-    malloc.free(inPtr);
+    calloc.free(outPtr);
+    calloc.free(inPtr);
     return ret;
   }
 
-  int finishAes(Pointer<CryptoAesCtx> ctx, Uint8List out) {
-    final outPtr = malloc<Uint8>(out.length);
-    final outLenPtr = malloc<Size>();
+  int finishAes(Pointer<CryptoAesCtx> ctx, Uint8List out) { 
+    final outPtr = out.allocatePointer();
+    final outLenPtr = calloc<Size>();
 
-    final ret = _bmcCryptAesFinish(ctx, outPtr, outLenPtr);
-    final actualLen = outLenPtr.value;
-    // Đảm bảo không copy quá giới hạn mảng Dart
-    final copyLen = actualLen <= out.length ? actualLen : out.length;
-    out.setAll(0, outPtr.asTypedList(copyLen));
-    malloc.free(outPtr);
-    malloc.free(outLenPtr);
+    var ret = _bmcCryptAesFinish(ctx, outPtr, outLenPtr);
+    if (ret > -1) {
+      final actualLen = outLenPtr.value;
+      // Đảm bảo không copy quá giới hạn mảng Dart
+      final copyLen = actualLen <= out.length ? actualLen : out.length;
+      out.setAll(0, outPtr.asTypedList(copyLen));
+      print("out: ${out}");
+      ret = copyLen;
+    }else{
+      throw Exception('AES finish failed: $ret');
+    }
+    calloc.free(outPtr);
+    calloc.free(outLenPtr);
     return ret;
   }
 
   int clearAes(Pointer<CryptoAesCtx> ctx) {
     return _bmcCryptAesClear(ctx);
   }
-}
 
+  int deriveSessionKeys(Uint8List sharedSecret, Uint8List ephemeralPk, Uint8List xPkPeer, Uint8List rootKey, Uint8List sendChainKey,Uint8List recvChainKey) {
+    final sharedSecretPtr = sharedSecret.allocatePointer();
+    final ephemeralPkPtr = ephemeralPk.allocatePointer();
+    final xPkPeerPtr = xPkPeer.allocatePointer();
+
+    final rootKeyPtr = rootKey.allocatePointer();
+    final sendChainKeyPtr = sendChainKey.allocatePointer();
+    final recvChainKeyPtr = recvChainKey.allocatePointer();
+
+    final ret = _bmcProtocolDeriveSessionKeys(sharedSecretPtr, ephemeralPkPtr, xPkPeerPtr, rootKeyPtr, sendChainKeyPtr, recvChainKeyPtr);
+    if (ret > -1) {
+      rootKey.setAll(0, rootKeyPtr.asTypedList(rootKey.length));
+      sendChainKey.setAll(0, sendChainKeyPtr.asTypedList(sendChainKey.length));
+      recvChainKey.setAll(0, recvChainKeyPtr.asTypedList(recvChainKey.length));
+    } else {
+      throw Exception('Derive session keys failed: $ret');
+    }
+    calloc.free(sharedSecretPtr);
+    calloc.free(ephemeralPkPtr);
+    calloc.free(xPkPeerPtr);
+    calloc.free(rootKeyPtr);
+    calloc.free(sendChainKeyPtr);
+    calloc.free(recvChainKeyPtr);
+    return ret;
+  }
+
+  int deriveMessageKeys(Uint8List chainKey, Uint8List messageKey, Uint8List nextChainKey, Uint8List macKey, Uint8List iv) {
+    final chainKeyPtr = chainKey.allocatePointer();
+    final messageKeyPtr = messageKey.allocatePointer();
+    final nextChainKeyPtr = nextChainKey.allocatePointer();
+    final macKeyPtr = macKey.allocatePointer();
+    final ivPtr = iv.allocatePointer();
+
+    final ret = _bmcProtocolDeriveMessageKeys(chainKeyPtr, messageKeyPtr, nextChainKeyPtr, macKeyPtr, ivPtr);
+    if (ret > -1) {
+      chainKey.setAll(0, chainKeyPtr.asTypedList(chainKey.length));
+      messageKey.setAll(0, messageKeyPtr.asTypedList(messageKey.length));
+      nextChainKey.setAll(0, nextChainKeyPtr.asTypedList(nextChainKey.length));
+      macKey.setAll(0, macKeyPtr.asTypedList(macKey.length));
+      iv.setAll(0, ivPtr.asTypedList(iv.length));
+    } else {
+      throw Exception('Derive message keys failed: $ret');
+    }
+    calloc.free(chainKeyPtr);
+    calloc.free(messageKeyPtr);
+    calloc.free(nextChainKeyPtr);
+    calloc.free(macKeyPtr);
+    calloc.free(ivPtr);
+
+    return ret;
+  }
+
+  int convertEd25519ToX25519(Uint8List ed25519PublicKey, Uint8List ed25519PrivateKey, Uint8List x25519PublicKey, Uint8List x25519PrivateKey) {
+    final ed25519PublicKeyPtr = ed25519PublicKey.allocatePointer();
+    final ed25519PrivateKeyPtr = ed25519PrivateKey.allocatePointer();
+    final x25519PublicKeyPtr = x25519PublicKey.allocatePointer();
+    final x25519PrivateKeyPtr = x25519PrivateKey.allocatePointer();
+
+    final ret = _bmcProtocolConvertEd25519ToX25519(x25519PrivateKeyPtr, x25519PublicKeyPtr, ed25519PrivateKeyPtr, ed25519PublicKeyPtr);
+    if (ret > -1) {
+      x25519PublicKey.setAll(0, x25519PublicKeyPtr.asTypedList(x25519PublicKey.length));
+      x25519PrivateKey.setAll(0, x25519PrivateKeyPtr.asTypedList(x25519PrivateKey.length));
+    } else {
+      throw Exception('Convert Ed25519 to X25519 failed: $ret');
+    }
+    calloc.free(ed25519PublicKeyPtr);
+    calloc.free(ed25519PrivateKeyPtr);
+    calloc.free(x25519PublicKeyPtr);
+    calloc.free(x25519PrivateKeyPtr);
+
+    return ret;
+  }
+
+  int generateEd25519Keypair(Uint8List publicKey, Uint8List privateKey) {
+    final publicKeyPtr = publicKey.allocatePointer();
+    final privateKeyPtr = privateKey.allocatePointer();
+
+    final ret = _bmcProtocolGenerateEd25519Keypair(privateKeyPtr, publicKeyPtr);
+    if (ret > -1) {
+      publicKey.setAll(0, publicKeyPtr.asTypedList(publicKey.length));
+      privateKey.setAll(0, privateKeyPtr.asTypedList(privateKey.length));
+    } else {
+      throw Exception('Generate Ed25519 keypair failed: $ret');
+    }
+    calloc.free(publicKeyPtr);
+    calloc.free(privateKeyPtr);
+    return ret;
+  }
+
+  int generateX25519Keypair(Uint8List publicKey, Uint8List privateKey) {
+    final publicKeyPtr = publicKey.allocatePointer();
+    final privateKeyPtr = privateKey.allocatePointer();
+
+    final ret = _bmcProtocolGenerateX25519Keypair(privateKeyPtr, publicKeyPtr);
+    if (ret > -1) {
+      publicKey.setAll(0, publicKeyPtr.asTypedList(publicKey.length));
+      privateKey.setAll(0, privateKeyPtr.asTypedList(privateKey.length));
+    } else {
+      throw Exception('Generate X25519 keypair failed: $ret');
+    }
+    calloc.free(publicKeyPtr);
+    calloc.free(privateKeyPtr);
+    return ret;
+  }
+
+  int caculateSecret(Uint8List secret, Uint8List privateKey, Uint8List publicKey) {
+    final secretPtr = secret.allocatePointer();
+    final privateKeyPtr = privateKey.allocatePointer();
+    final publicKeyPtr = publicKey.allocatePointer();
+
+    final ret = _bmcProtocolCaculateSecret(secretPtr, privateKeyPtr, publicKeyPtr);
+    if (ret > -1) {
+      secret.setAll(0, secretPtr.asTypedList(secret.length));
+    } else {
+      throw Exception('Caculate secret failed: $ret');
+    }
+    calloc.free(publicKeyPtr);
+    calloc.free(privateKeyPtr);
+    calloc.free(secretPtr);
+    return ret;
+  }
+
+  int sign(Uint8List message, Uint8List privateKey, Uint8List signature) {
+    final messagePtr = message.allocatePointer();
+    final privateKeyPtr = privateKey.allocatePointer();
+    final signaturePtr = signature.allocatePointer();
+    final signatureLenPtr = calloc<Uint64>();
+
+    final ret = _bmcProtocolSign(signaturePtr, signatureLenPtr, messagePtr, message.length, privateKeyPtr);
+    if (ret > -1) {
+      final actualLen = signatureLenPtr.value;
+      final copyLen = actualLen <= signature.length ? actualLen : signature.length;
+      signature.setAll(0, signaturePtr.asTypedList(copyLen));
+    } else {
+      throw Exception('Sign failed: $ret');
+    }
+    calloc.free(messagePtr);
+    calloc.free(privateKeyPtr);
+    calloc.free(signaturePtr);
+    calloc.free(signatureLenPtr);
+    return ret;
+  }
+
+  int verify(Uint8List publicKey, Uint8List message, Uint8List signature) {
+    final publicKeyPtr = publicKey.allocatePointer();
+    final messagePtr = message.allocatePointer();
+    final signaturePtr = signature.allocatePointer();
+
+    final ret = _bmcProtocolVerify(signaturePtr, messagePtr, message.length, publicKeyPtr);
+    if (ret == -1){
+      throw Exception('Verify failed: $ret');
+    }
+    calloc.free(publicKeyPtr);
+    calloc.free(messagePtr);
+    calloc.free(signaturePtr);
+    return ret;
+  }
+
+  Pointer<CryptoHmacSha256Ctx> initHmacSha256(Uint8List key) {
+    final keyPtr = key.allocatePointer();
+    final ctxPtr = calloc<Pointer<CryptoHmacSha256Ctx>>();
+    final ret = _bmcProtocolHmacSha256Init(ctxPtr, keyPtr, key.length);
+    calloc.free(keyPtr);
+    if (ret > -1) {
+      return ctxPtr.value;
+    } else {
+      throw Exception('HMAC SHA256 init failed: $ret');
+    }
+  }
+
+  int updateHmacSha256(Pointer<CryptoHmacSha256Ctx> ctx, Uint8List data) {
+    final dataPtr = data.allocatePointer();
+    final ret = _bmcProtocolHmacSha256Update(ctx, dataPtr, data.length);
+    calloc.free(dataPtr);
+    if (ret > -1) {
+      return ret;
+    } else {
+      throw Exception('HMAC SHA256 update failed: $ret');
+    }
+  }
+
+  int finishHmacSha256(Pointer<CryptoHmacSha256Ctx> ctx, Uint8List out) {
+    final outPtr = out.allocatePointer();
+    final ret = _bmcProtocolHmacSha256Finish(ctx, outPtr);
+    if (ret > -1) {
+      out.setAll(0, outPtr.asTypedList(out.length));
+    } else {
+      throw Exception('HMAC SHA256 finish failed: $ret');
+    }
+    calloc.free(outPtr);
+    return ret;
+  }
+
+  int clearHmacSha256(Pointer<CryptoHmacSha256Ctx> ctx) {
+    return _bmcProtocolHmacSha256Clear(ctx);
+  }
+}
 
 // Extension helper để quản lý bộ nhớ dễ dàng hơn
 extension Uint8ListBlobConversion on Uint8List {
