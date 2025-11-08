@@ -132,16 +132,15 @@ class BmcProtocolContext{
   }
 
   //derive message key
-  int deriveMessageKey(){
-    final nextChainKey = Uint8List(libcrypt.BMC_PROTOCOL_CHAIN_KEY_LEN);
-    final macKey = Uint8List(libcrypt.BMC_PROTOCOL_HMAC_KEY_LEN);
+  int deriveMessageKey(Uint8List salt){
+    //final nextChainKey = Uint8List(libcrypt.BMC_PROTOCOL_CHAIN_KEY_LEN);
     final iv = Uint8List(libcrypt.BMC_PROTOCOL_NONCE_LEN);
-    var ret = crypto.deriveMessageKeys(messageCtx.chainKey, messageCtx.messageKey, nextChainKey, macKey, iv);
+    var ret = crypto.deriveMessageKeys(messageCtx.chainKey, salt, messageCtx.messageKey, null, null, iv);
     if(ret != 0){
       return -1;
     }
-    messageCtx.chainKey.setAll(0, nextChainKey);
-    messageCtx.hmacKey.setAll(0, macKey);
+    //messageCtx.chainKey.setAll(0, nextChainKey);
+    //messageCtx.hmacKey.setAll(0, macKey);
     messageCtx.nonce.setAll(0, iv);
     return ret;
   }
@@ -163,16 +162,6 @@ class BmcProtocolContext{
   }
 
   // ==================== ISOLATE FUNCTIONS ====================
-
-  /// Initialize long term key in isolate
-  Future<bool> initLongTermKeyAsync() async {
-    return await compute(_initLongTermKeyIsolate, null);
-  }
-
-  /// Generate ephemeral key in isolate
-  Future<bool> generateEphemeralKeyAsync() async {
-    return await compute(_generateEphemeralKeyIsolate, null);
-  }
 
   /// Sign ephemeral public key in isolate
   Future<Uint8List> signEphemeralPublicKeyAsync() async {
@@ -211,8 +200,9 @@ class BmcProtocolContext{
   }
 
   /// Derive message key in isolate
-  Future<_MessageKeyResult> deriveMessageKeyAsync() async {
-    return await compute(_deriveMessageKeyIsolate, messageCtx.chainKey);
+  Future<_MessageKeyResult> deriveMessageKeyAsync(Uint8List salt) async {
+    final params = _DeriveMessageKeyParams(messageCtx.chainKey, salt);
+    return await compute(_deriveMessageKeyIsolate, params);
   }
 
   /// Encrypt message in isolate
@@ -258,6 +248,13 @@ class _DeriveSessionKeyParams {
   final Uint8List peerPk;
   
   _DeriveSessionKeyParams(this.secretShared, this.ephemeralPk, this.peerPk);
+}
+
+class _DeriveMessageKeyParams {
+  final Uint8List chainKey;
+  final Uint8List salt;
+  
+  _DeriveMessageKeyParams(this.chainKey, this.salt);
 }
 
 class _EncryptMessageParams {
@@ -366,15 +363,13 @@ Uint8List _deriveSessionPeerKeyIsolate(_DeriveSessionKeyParams params) {
 }
 
 /// Isolate worker function for deriving message key
-_MessageKeyResult _deriveMessageKeyIsolate(Uint8List chainKey) {
+_MessageKeyResult _deriveMessageKeyIsolate(_DeriveMessageKeyParams params) {
   final crypto = libcrypt.BmcCrypto();
   final messageKey = Uint8List(libcrypt.BMC_PROTOCOL_MESSAGE_KEY_LEN);
-  final nextChainKey = Uint8List(libcrypt.BMC_PROTOCOL_CHAIN_KEY_LEN);
-  final macKey = Uint8List(libcrypt.BMC_PROTOCOL_HMAC_KEY_LEN);
   final iv = Uint8List(libcrypt.BMC_PROTOCOL_NONCE_LEN);
   
-  crypto.deriveMessageKeys(chainKey, messageKey, nextChainKey, macKey, iv);
-  return _MessageKeyResult(nextChainKey, messageKey, macKey, iv);
+  crypto.deriveMessageKeys(params.chainKey, params.salt, messageKey, null, null, iv);
+  return _MessageKeyResult(params.chainKey, messageKey, Uint8List(0), iv);
 }
 
 /// Isolate worker function for message encryption

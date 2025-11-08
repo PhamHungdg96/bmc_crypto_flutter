@@ -124,17 +124,6 @@ Future<void> funcAliceBobTestAsync() async {
   final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
   final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
   
-  // Init long term key using async functions
-  final aliceKeyResult = await alice.initLongTermKeyAsync();
-  final bobKeyResult = await bob.initLongTermKeyAsync();
-  
-  if (!aliceKeyResult || !bobKeyResult) {
-    print('Failed to initialize long term keys');
-    return;
-  }
-  
-  print('✅ Long term keys initialized using Isolate');
-  
   // Generate keypairs using async functions
   final aliceKeypair = await crypto.generateEd25519KeypairAsync();
   final bobKeypair = await crypto.generateEd25519KeypairAsync();
@@ -160,13 +149,6 @@ Future<void> funcAliceBobTestAsync() async {
   alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
   bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
   
-  // Generate ephemeral keys using async functions
-  final aliceEphemeralResult = await alice.generateEphemeralKeyAsync();
-  if (!aliceEphemeralResult) {
-    print("Alice generate ephemeral key failed");
-    return;
-  }
-  
   // Generate ephemeral keypair for Alice
   final aliceEphemeral = await crypto.generateX25519KeypairAsync();
   alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
@@ -187,9 +169,11 @@ Future<void> funcAliceBobTestAsync() async {
   final aliceSessionKey = await alice.deriveSessionSelfKeyAsync();
   alice.messageCtx.chainKey.setAll(0, aliceSessionKey);
   print_hex("alice session key (async)", alice.messageCtx.chainKey);
+
+  final Uint8List aad = await crypto.rand(32);
   
   // Derive message key using async function
-  final aliceMessageKeyResult = await alice.deriveMessageKeyAsync();
+  final aliceMessageKeyResult = await alice.deriveMessageKeyAsync(aad);
   alice.messageCtx.chainKey.setAll(0, aliceMessageKeyResult.chainKey);
   alice.messageCtx.messageKey.setAll(0, aliceMessageKeyResult.messageKey);
   alice.messageCtx.hmacKey.setAll(0, aliceMessageKeyResult.hmacKey);
@@ -220,7 +204,7 @@ Future<void> funcAliceBobTestAsync() async {
   print_hex("bob session key (async)", bob.messageCtx.chainKey);
   
   // Derive message key using async function
-  final bobMessageKeyResult = await bob.deriveMessageKeyAsync();
+  final bobMessageKeyResult = await bob.deriveMessageKeyAsync(aad);
   bob.messageCtx.chainKey.setAll(0, bobMessageKeyResult.chainKey);
   bob.messageCtx.messageKey.setAll(0, bobMessageKeyResult.messageKey);
   bob.messageCtx.hmacKey.setAll(0, bobMessageKeyResult.hmacKey);
@@ -278,7 +262,10 @@ void funcAliceBobTest(){
   print_hex("alice secret shared", alice.secretShared);
   alice.deriveSessionSelfKey();
   print_hex("alice session key", alice.messageCtx.chainKey);
-  alice.deriveMessageKey();
+
+  final Uint8List aad = crypto.rand(32);
+
+  alice.deriveMessageKey(aad);
   print_hex("alice message key", alice.messageCtx.messageKey);
   //Alice send to Bob (first message include ephemeral public key;signature;first cipher text;hmacsha256 of first cipher text)
   final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob!'));
@@ -300,7 +287,7 @@ void funcAliceBobTest(){
   print_hex("bob session key", bob.messageCtx.chainKey);
   //derive message key
   
-  bob.deriveMessageKey();
+  bob.deriveMessageKey(aad);
   print_hex("bob message key", bob.messageCtx.messageKey);
   //decrypt first message
   final firstPlainText = bob.decryptMessage(firstCipherText);

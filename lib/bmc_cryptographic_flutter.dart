@@ -24,6 +24,9 @@ const int BMC_PROTOCOL_SKLEN = 64;
 const int BMC_PROTOCOL_x25519_KEYLEN = 32;
 const int BMC_PROTOCOL_SIGLEN = 64;
 
+const int BMC_PROTOCOL_GCM_TAG_LEN = 16;
+const int BMC_PROTOCOL_GCM_NONCE_LEN = 12;
+
 // --- khởi tạo thư viện và random
 typedef _BmcCryptInitFunc = Void Function();
 typedef _BmcCryptInitDartFunc = void Function();
@@ -45,11 +48,18 @@ typedef _BmcCryptAesClearFunc = Int32 Function(Pointer<CryptoAesCtx>);
 typedef _BmcCryptAesClearDartFunc = int Function(Pointer<CryptoAesCtx>);
 
 //for bmc_protocol
+typedef _BmcProtocolRandFunc = Void Function(Pointer<Uint8>, Size);
+typedef _BmcProtocolRandDartFunc = void Function(Pointer<Uint8>, int);
+
 typedef _BmcProtocolDeriveSessionKeysFunc = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 typedef _BmcProtocolDeriveSessionKeysDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 
 typedef _BmcProtocolDeriveMessageKeysFunc = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 typedef _BmcProtocolDeriveMessageKeysDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
+typedef _BmcProtocolDeriveMessageKeysExFunc = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolDeriveMessageKeysExDartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
+
 
 typedef _BmcProtocolConvertEd25519ToX25519Func = Int32  Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 typedef _BmcProtocolConvertEd25519ToX25519DartFunc = int Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
@@ -90,6 +100,15 @@ typedef _BmcProtocolEncryptDartFunc = int Function(Pointer<Pointer<Uint8>>, Poin
 typedef _BmcProtocolDecryptFunc = Int32  Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 typedef _BmcProtocolDecryptDartFunc = int Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>);
 
+//for bmc_protocol_encrypt_aead(&ciphertext, &ciphertext_len, plaintext, plaintext_len, aad, aad_len, key, nonce)
+typedef _BmcProtocolEncryptAEADFunc = Int32  Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, Size, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolEncryptAEADDartFunc = int Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>,int, Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>);
+
+//for bmc_protocol_decrypt(&plaintext, &plaintext_len, ciphertext, ciphertext_len, aad, aad_len, key, nonce)
+typedef _BmcProtocolDecryptAEADFunc = Int32  Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, Size, Pointer<Uint8>, Size, Pointer<Uint8>, Pointer<Uint8>);
+typedef _BmcProtocolDecryptAEADDartFunc = int Function(Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Uint8>, int, Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>);
+
+
 /// Lớp API chính để tương tác với thư viện mật mã native.
 class BmcCrypto {
   /// Singleton pattern để đảm bảo chỉ có một instance của FFI bridge.
@@ -103,8 +122,10 @@ class BmcCrypto {
   late final _BmcCryptAesFinishDartFunc _bmcCryptAesFinish;
   late final _BmcCryptAesClearDartFunc _bmcCryptAesClear;
 
+  late final _BmcProtocolRandDartFunc _bmcProtocolRandFunc;
   late final _BmcProtocolDeriveSessionKeysDartFunc _bmcProtocolDeriveSessionKeys;
   late final _BmcProtocolDeriveMessageKeysDartFunc _bmcProtocolDeriveMessageKeys;
+  late final _BmcProtocolDeriveMessageKeysExDartFunc _bmcProtocolDeriveMessageKeysEx;
   late final _BmcProtocolConvertEd25519ToX25519DartFunc _bmcProtocolConvertEd25519ToX25519;
   late final _BmcProtocolGenerateEd25519KeypairDartFunc _bmcProtocolGenerateEd25519Keypair;
   late final _BmcProtocolGenerateX25519KeypairDartFunc _bmcProtocolGenerateX25519Keypair;
@@ -119,6 +140,9 @@ class BmcCrypto {
   late final _BmcProtocolEncryptDartFunc _bmcProtocolEncrypt;
   late final _BmcProtocolDecryptDartFunc _bmcProtocolDecrypt;
 
+  late final _BmcProtocolEncryptAEADDartFunc _bmcProtocolEncryptAEAD;
+  late final _BmcProtocolDecryptAEADDartFunc _bmcProtocolDecryptAEAD;
+
 
   BmcCrypto._internal() {
     _dylib = _loadDylib();
@@ -128,8 +152,11 @@ class BmcCrypto {
     _bmcCryptAesFinish = _dylib.lookup<NativeFunction<_BmcCryptAesFinishFunc>>('crypto_core_aes_finish').asFunction<_BmcCryptAesFinishDartFunc>();
     _bmcCryptAesClear = _dylib.lookup<NativeFunction<_BmcCryptAesClearFunc>>('crypto_core_aes_cleanup').asFunction<_BmcCryptAesClearDartFunc>();
 
+    _bmcProtocolRandFunc = _dylib.lookup<NativeFunction<_BmcProtocolRandFunc>>('bmc_protocol_rand').asFunction<_BmcProtocolRandDartFunc>();
     _bmcProtocolDeriveSessionKeys = _dylib.lookup<NativeFunction<_BmcProtocolDeriveSessionKeysFunc>>('bmc_protocol_derive_session_keys').asFunction<_BmcProtocolDeriveSessionKeysDartFunc>();
     _bmcProtocolDeriveMessageKeys = _dylib.lookup<NativeFunction<_BmcProtocolDeriveMessageKeysFunc>>('bmc_protocol_derive_message_keys').asFunction<_BmcProtocolDeriveMessageKeysDartFunc>();
+    _bmcProtocolDeriveMessageKeysEx = _dylib.lookup<NativeFunction<_BmcProtocolDeriveMessageKeysExFunc>>('bmc_protocol_derive_message_keys_ex').asFunction<_BmcProtocolDeriveMessageKeysExDartFunc>();
+    
     _bmcProtocolConvertEd25519ToX25519 = _dylib.lookup<NativeFunction<_BmcProtocolConvertEd25519ToX25519Func>>('bmc_protocol_convert_ed25519_to_x25519').asFunction<_BmcProtocolConvertEd25519ToX25519DartFunc>();
     _bmcProtocolGenerateEd25519Keypair = _dylib.lookup<NativeFunction<_BmcProtocolGenerateEd25519KeypairFunc>>('bmc_protocol_generate_ed25519_keypair').asFunction<_BmcProtocolGenerateEd25519KeypairDartFunc>();
     _bmcProtocolGenerateX25519Keypair = _dylib.lookup<NativeFunction<_BmcProtocolGenerateX25519KeypairFunc>>('bmc_protocol_generate_x25519_keypair').asFunction<_BmcProtocolGenerateX25519KeypairDartFunc>();
@@ -142,6 +169,11 @@ class BmcCrypto {
     _bmcProtocolHmacSha256Clear = _dylib.lookup<NativeFunction<_BmcProtocolHmacSha256ClearFunc>>('bmc_protocol_hmac_sha256_cleanup').asFunction<_BmcProtocolHmacSha256ClearDartFunc>();
     _bmcProtocolEncrypt = _dylib.lookup<NativeFunction<_BmcProtocolEncryptFunc>>('bmc_protocol_encrypt').asFunction<_BmcProtocolEncryptDartFunc>();
     _bmcProtocolDecrypt = _dylib.lookup<NativeFunction<_BmcProtocolDecryptFunc>>('bmc_protocol_decrypt').asFunction<_BmcProtocolDecryptDartFunc>();
+    
+    _bmcProtocolEncryptAEAD = _dylib.lookup<NativeFunction<_BmcProtocolEncryptAEADFunc>>('bmc_protocol_encrypt_aead').asFunction<_BmcProtocolEncryptAEADDartFunc>();
+    _bmcProtocolDecryptAEAD = _dylib.lookup<NativeFunction<_BmcProtocolDecryptAEADFunc>>('bmc_protocol_decrypt_aead').asFunction<_BmcProtocolDecryptAEADDartFunc>();
+    
+    
     _bmcCryptInit();
   }
 
@@ -152,6 +184,38 @@ class BmcCrypto {
     if (Platform.isLinux) return DynamicLibrary.open('libbmc_crypt.so');
     if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
     throw UnsupportedError('Unsupported platform');
+  }
+
+  Uint8List encryptAEAD(Uint8List plaintext, Uint8List aad, Uint8List messageKey, Uint8List iv){
+    assert(plaintext.isNotEmpty);
+    assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
+    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+
+    final plaintextPtr = plaintext.allocatePointer();
+    final messageKeyPtr = messageKey.allocatePointer();
+    final ivPtr = iv.allocatePointer();
+    final aadPtr = aad.allocatePointer();
+    final ciphertextPtr = calloc<Pointer<Uint8>>();
+    final ciphertextLenPtr = calloc<Size>();
+    final ret = _bmcProtocolEncryptAEAD(ciphertextPtr, ciphertextLenPtr, plaintextPtr, plaintext.length, aadPtr, aad.length, messageKeyPtr, ivPtr);
+    if (ret > -1) {
+      final ciphertext = ciphertextPtr.value.asTypedList(ciphertextLenPtr.value);
+      calloc.free(plaintextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(aadPtr);
+      calloc.free(ciphertextPtr);
+      calloc.free(ciphertextLenPtr);
+      return ciphertext;
+    } else {
+      calloc.free(plaintextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(aadPtr);
+      calloc.free(ciphertextPtr);
+      calloc.free(ciphertextLenPtr);
+      throw Exception('EncryptAEAD failed: $ret');
+    }
   }
 
   Uint8List encrypt(Uint8List plaintext, Uint8List messageKey, Uint8List iv, Uint8List macKey) {
@@ -187,6 +251,38 @@ class BmcCrypto {
     }
   }
 
+  Uint8List decryptAEAD(Uint8List ciphertext, Uint8List aad, Uint8List messageKey, Uint8List iv) {
+    assert(ciphertext.isNotEmpty);
+    assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
+    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+
+    final ciphertextPtr = ciphertext.allocatePointer();
+    final messageKeyPtr = messageKey.allocatePointer();
+    final ivPtr = iv.allocatePointer();
+    final aadPtr = aad.allocatePointer();
+    final plaintextPtr = calloc<Pointer<Uint8>>();
+    final plaintextLenPtr = calloc<Size>();
+    final ret = _bmcProtocolDecryptAEAD(plaintextPtr, plaintextLenPtr, ciphertextPtr, ciphertext.length, aadPtr, aad.length, messageKeyPtr, ivPtr);
+    if (ret > -1) {
+      final plaintext = plaintextPtr.value.asTypedList(plaintextLenPtr.value);
+      calloc.free(ciphertextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(aadPtr);
+      calloc.free(plaintextPtr);
+      calloc.free(plaintextLenPtr);
+      return plaintext;
+    } else {
+      calloc.free(ciphertextPtr);
+      calloc.free(messageKeyPtr);
+      calloc.free(ivPtr);
+      calloc.free(aadPtr);
+      calloc.free(plaintextPtr);
+      calloc.free(plaintextLenPtr);
+      throw Exception('DecryptAEAD failed: $ret');
+    }
+  }
+
   Uint8List decrypt(Uint8List ciphertext, Uint8List messageKey, Uint8List iv, Uint8List macKey) {
     assert(ciphertext.isNotEmpty);
     assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
@@ -218,6 +314,15 @@ class BmcCrypto {
       calloc.free(plaintextLenPtr);
       throw Exception('Decrypt failed: $ret');
     }
+  }
+
+  Uint8List rand(int size){
+    final buf = Uint8List(size);
+    final bufPtr = calloc<Uint8>(size);
+    _bmcProtocolRandFunc(bufPtr, size);
+    buf.setAll(0, bufPtr.asTypedList(size));
+    calloc.free(bufPtr);
+    return buf;
   }
 
   Pointer<CryptoAesCtx> initAesCtx(Uint8List key, int mode, int isEnc, Uint8List iv) {
@@ -304,29 +409,33 @@ class BmcCrypto {
     return ret;
   }
 
-  int deriveMessageKeys(Uint8List chainKey, Uint8List messageKey, Uint8List nextChainKey, Uint8List macKey, Uint8List iv) {
+  int deriveMessageKeys(Uint8List chainKey, Uint8List salt, Uint8List messageKey, Uint8List? nextChainKey, Uint8List? macKey, Uint8List iv) {
     final chainKeyPtr = chainKey.allocatePointer();
     final messageKeyPtr = messageKey.allocatePointer();
-    final nextChainKeyPtr = nextChainKey.allocatePointer();
-    final macKeyPtr = macKey.allocatePointer();
+    final nextChainKeyPtr = nextChainKey != null ? nextChainKey.allocatePointer() : nullptr;
+    final macKeyPtr = macKey != null ? macKey.allocatePointer() : nullptr;
     final ivPtr = iv.allocatePointer();
+    final saltPtr = salt.allocatePointer();
 
-    final ret = _bmcProtocolDeriveMessageKeys(chainKeyPtr, messageKeyPtr, nextChainKeyPtr, macKeyPtr, ivPtr);
+    final ret = _bmcProtocolDeriveMessageKeysEx(chainKeyPtr, saltPtr, salt.length, messageKeyPtr, nextChainKeyPtr, macKeyPtr, ivPtr);
     if (ret > -1) {
-      chainKey.setAll(0, chainKeyPtr.asTypedList(chainKey.length));
       messageKey.setAll(0, messageKeyPtr.asTypedList(messageKey.length));
-      nextChainKey.setAll(0, nextChainKeyPtr.asTypedList(nextChainKey.length));
-      macKey.setAll(0, macKeyPtr.asTypedList(macKey.length));
+      if (nextChainKey != null && nextChainKeyPtr != nullptr) {
+        nextChainKey.setAll(0, nextChainKeyPtr.asTypedList(nextChainKey.length));
+      }
+      if (macKey != null && macKeyPtr != nullptr) {
+        macKey.setAll(0, macKeyPtr.asTypedList(macKey.length));
+      }
       iv.setAll(0, ivPtr.asTypedList(iv.length));
     } else {
       throw Exception('Derive message keys failed: $ret');
     }
     calloc.free(chainKeyPtr);
+    calloc.free(saltPtr);
     calloc.free(messageKeyPtr);
-    calloc.free(nextChainKeyPtr);
-    calloc.free(macKeyPtr);
+    if (nextChainKeyPtr != nullptr) calloc.free(nextChainKeyPtr);
+    if (macKeyPtr != nullptr) calloc.free(macKeyPtr);
     calloc.free(ivPtr);
-
     return ret;
   }
 
@@ -533,6 +642,12 @@ class BmcCrypto {
   Future<_MessageKeysResult> deriveMessageKeysAsync(Uint8List chainKey) async {
     return await compute(_deriveMessageKeysIsolate, chainKey);
   }
+
+  /// Generate random bytes in isolate
+  Future<Uint8List> randAsync(int size) async {
+    return await compute(_randIsolate, size);
+  }
+  
 }
 
 // ==================== ISOLATE PARAMETER CLASSES ====================
@@ -621,6 +736,12 @@ class _MessageKeysResult {
 
 // ==================== ISOLATE WORKER FUNCTIONS ====================
 
+/// Isolate worker function for generating random bytes
+  Uint8List _randIsolate(int size) {
+    final crypto = BmcCrypto();
+    return crypto.rand(size);
+  }
+
 /// Isolate worker function for encryption
 Uint8List _encryptIsolate(_EncryptParams params) {
   final crypto = BmcCrypto();
@@ -706,12 +827,13 @@ _SessionKeysResult _deriveSessionKeysIsolate(_DeriveSessionKeysParams params) {
 /// Isolate worker function for message key derivation
 _MessageKeysResult _deriveMessageKeysIsolate(Uint8List chainKey) {
   final crypto = BmcCrypto();
+  final salt = Uint8List(0); // Empty salt
   final messageKey = Uint8List(BMC_PROTOCOL_MESSAGE_KEY_LEN);
   final nextChainKey = Uint8List(BMC_PROTOCOL_CHAIN_KEY_LEN);
   final macKey = Uint8List(BMC_PROTOCOL_HMAC_KEY_LEN);
   final iv = Uint8List(BMC_PROTOCOL_NONCE_LEN);
   
-  crypto.deriveMessageKeys(chainKey, messageKey, nextChainKey, macKey, iv);
+  crypto.deriveMessageKeys(chainKey, salt, messageKey, nextChainKey, macKey, iv);
   return _MessageKeysResult(chainKey, messageKey, nextChainKey, macKey, iv);
 }
 
