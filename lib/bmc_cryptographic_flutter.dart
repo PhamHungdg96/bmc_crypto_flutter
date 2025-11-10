@@ -587,16 +587,16 @@ class BmcCrypto {
   // ==================== ISOLATE FUNCTIONS ====================
   
   /// Encrypt data in isolate to avoid blocking UI thread
-  Future<Uint8List> encryptAsync(Uint8List plaintext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
-    final params = _EncryptParams(plaintext, messageKey, iv, macKey);
-    return await compute(_encryptIsolate, params);
-  }
+  // Future<Uint8List> encryptAsync(Uint8List plaintext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
+  //   final params = _EncryptParams(plaintext, messageKey, iv, macKey);
+  //   return await compute(_encryptIsolate, params);
+  // }
 
-  /// Decrypt data in isolate to avoid blocking UI thread  
-  Future<Uint8List> decryptAsync(Uint8List ciphertext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
-    final params = _DecryptParams(ciphertext, messageKey, iv, macKey);
-    return await compute(_decryptIsolate, params);
-  }
+  // /// Decrypt data in isolate to avoid blocking UI thread  
+  // Future<Uint8List> decryptAsync(Uint8List ciphertext, Uint8List messageKey, Uint8List iv, Uint8List macKey) async {
+  //   final params = _DecryptParams(ciphertext, messageKey, iv, macKey);
+  //   return await compute(_decryptIsolate, params);
+  // }
 
   /// Generate Ed25519 keypair in isolate
   Future<_KeypairResult> generateEd25519KeypairAsync() async {

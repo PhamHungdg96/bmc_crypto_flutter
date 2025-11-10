@@ -182,7 +182,7 @@ Future<void> funcAliceBobTestAsync() async {
   
   // Encrypt message using async function
   final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob! (from Isolate)'));
-  final firstCipherText = await alice.encryptMessageAsync(firstMessage);
+  final firstCipherText = await alice.encryptMessageAsync(firstMessage, aad);
   print_hex("alice first cipher text (async)", firstCipherText);
   
   // Bob verify ephemeral public key using async function
@@ -212,7 +212,7 @@ Future<void> funcAliceBobTestAsync() async {
   print_hex("bob message key (async)", bob.messageCtx.messageKey);
   
   // Decrypt message using async function
-  final firstPlainText = await bob.decryptMessageAsync(firstCipherText);
+  final firstPlainText = await bob.decryptMessageAsync(firstCipherText, aad);
   print_hex("bob first plain text (async)", firstPlainText);
   print("✅ bob first plain text (async): ${utf8.decode(firstPlainText)}");
 }
@@ -269,7 +269,7 @@ void funcAliceBobTest(){
   print_hex("alice message key", alice.messageCtx.messageKey);
   //Alice send to Bob (first message include ephemeral public key;signature;first cipher text;hmacsha256 of first cipher text)
   final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob!'));
-  final firstCipherText = alice.encryptMessage(firstMessage);
+  final firstCipherText = alice.encryptMessage(firstMessage, aad);
   print_hex("alice first cipher text", firstCipherText);
 
   //Bob verify ephemeral public key
@@ -290,7 +290,7 @@ void funcAliceBobTest(){
   bob.deriveMessageKey(aad);
   print_hex("bob message key", bob.messageCtx.messageKey);
   //decrypt first message
-  final firstPlainText = bob.decryptMessage(firstCipherText);
+  final firstPlainText = bob.decryptMessage(firstCipherText, aad);
   print_hex("bob first plain text", firstPlainText);
   print("bob first plain text: ${utf8.decode(firstPlainText)}");
   

@@ -146,18 +146,18 @@ class BmcProtocolContext{
   }
 
   //encrypt message
-  Uint8List encryptMessage(Uint8List message){
+  Uint8List encryptMessage(Uint8List message, Uint8List aad){
     assert(message.isNotEmpty);
     
-    final ciphertext = crypto.encrypt(message, messageCtx.messageKey, messageCtx.nonce, messageCtx.hmacKey);
+    final ciphertext = crypto.encryptAEAD(message, aad, messageCtx.messageKey, messageCtx.nonce);
     return ciphertext;
   }
 
   //decrypt message
-  Uint8List decryptMessage(Uint8List ciphertext){
+  Uint8List decryptMessage(Uint8List ciphertext, Uint8List aad){
     assert(ciphertext.isNotEmpty);
     
-    final plaintext = crypto.decrypt(ciphertext, messageCtx.messageKey, messageCtx.nonce, messageCtx.hmacKey);
+    final plaintext = crypto.decryptAEAD(ciphertext, aad, messageCtx.messageKey, messageCtx.nonce);
     return plaintext;
   }
 
@@ -206,14 +206,14 @@ class BmcProtocolContext{
   }
 
   /// Encrypt message in isolate
-  Future<Uint8List> encryptMessageAsync(Uint8List message) async {
-    final params = _EncryptMessageParams(message, messageCtx.messageKey, messageCtx.nonce, messageCtx.hmacKey);
+  Future<Uint8List> encryptMessageAsync(Uint8List message, Uint8List aad) async {
+    final params = _EncryptMessageParams(message, aad, messageCtx.messageKey, messageCtx.nonce);
     return await compute(_encryptMessageIsolate, params);
   }
 
   /// Decrypt message in isolate
-  Future<Uint8List> decryptMessageAsync(Uint8List ciphertext) async {
-    final params = _EncryptMessageParams(ciphertext, messageCtx.messageKey, messageCtx.nonce, messageCtx.hmacKey);
+  Future<Uint8List> decryptMessageAsync(Uint8List ciphertext, Uint8List aad) async {
+    final params = _EncryptMessageParams(ciphertext, aad, messageCtx.messageKey, messageCtx.nonce);
     return await compute(_decryptMessageIsolate, params);
   }
 }
@@ -259,11 +259,11 @@ class _DeriveMessageKeyParams {
 
 class _EncryptMessageParams {
   final Uint8List message;
+  final Uint8List aad;
   final Uint8List messageKey;
   final Uint8List nonce;
-  final Uint8List hmacKey;
   
-  _EncryptMessageParams(this.message, this.messageKey, this.nonce, this.hmacKey);
+  _EncryptMessageParams(this.message,this.aad,this.messageKey, this.nonce);
 }
 
 // ==================== ISOLATE RESULT CLASSES ====================
@@ -375,11 +375,11 @@ _MessageKeyResult _deriveMessageKeyIsolate(_DeriveMessageKeyParams params) {
 /// Isolate worker function for message encryption
 Uint8List _encryptMessageIsolate(_EncryptMessageParams params) {
   final crypto = libcrypt.BmcCrypto();
-  return crypto.encrypt(params.message, params.messageKey, params.nonce, params.hmacKey);
+  return crypto.encryptAEAD(params.message, params.aad, params.messageKey, params.nonce);
 }
 
 /// Isolate worker function for message decryption
 Uint8List _decryptMessageIsolate(_EncryptMessageParams params) {
   final crypto = libcrypt.BmcCrypto();
-  return crypto.decrypt(params.message, params.messageKey, params.nonce, params.hmacKey);
+  return crypto.decryptAEAD(params.message, params.aad, params.messageKey, params.nonce);
 }
