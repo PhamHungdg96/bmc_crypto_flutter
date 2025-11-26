@@ -9,10 +9,9 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
 A new Flutter project.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://bmctech.vn'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
-
+  s.author           = { 'BMC T&S JSC' => 'info@bmctech.vn' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
 
@@ -24,7 +23,10 @@ A new Flutter project.
 
   s.dependency 'FlutterMacOS'
 
-  s.platform = :osx, '10.11'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  s.platform = :osx, '15.0'
+  s.vendored_frameworks = 'bmc_cryptographic.xcframework'
+
+  # Flutter.framework does not contain a i386 slice.
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386', 'OTHER_LDFLAGS' => '-all_load' }
   s.swift_version = '5.0'
 end
