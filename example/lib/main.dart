@@ -50,6 +50,9 @@ class _MyHomePageState extends State<MyHomePage> {
     // Test async (isolate) functions
     await _testAsyncFunctions();
 
+    // Test gennerate key functions
+    await _testGenerateKeyAsyncFunctions();
+
     setState(() {
       _isLoading = false;
     });
@@ -80,6 +83,20 @@ class _MyHomePageState extends State<MyHomePage> {
     
     setState(() {
       _result += 'Async functions completed in: ${end.difference(start).inMilliseconds}ms\n';
+    });
+  }
+
+  Future<void> _testGenerateKeyAsyncFunctions() async{
+    setState(() {
+      _result += '\n=== TESTING GENERATE KEY ASYNC (ISOLATE) FUNCTIONS ===\n';
+    });
+    
+    final start = DateTime.now();
+    await funcGenKeyTestAsync();
+    final end = DateTime.now();
+    
+    setState(() {
+      _result += 'Async gen key functions completed in: ${end.difference(start).inMilliseconds}ms\n';
     });
   }
 
@@ -114,6 +131,74 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
+}
+
+Future<void> funcGenKeyTestAsync() async {
+  print('\n--- ASYNC (ISOLATE) GenKey Test ---');
+  
+  int testCount = 0;
+  int successCount = 0;
+  int errorCount = 0;
+  
+  while (testCount < 10) { // Test 10 lần
+    testCount++;
+    print('\n=== Test iteration $testCount ===');
+    
+    try {
+      // Khai báo context cho Alice và Bob để lưu khóa dài hạn
+      final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
+      final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
+
+      final aliceKeypair = await crypto.generateEd25519KeypairAsync();
+      final bobKeypair = await crypto.generateEd25519KeypairAsync();
+      
+      alice.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
+      alice.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
+      bob.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
+      bob.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
+      
+      // Convert Ed25519 to X25519 using async functions
+      final aliceX25519 = await crypto.convertEd25519ToX25519Async(alice.ed25519PublicKey, alice.ed25519PrivateKey);
+      final bobX25519 = await crypto.convertEd25519ToX25519Async(bob.ed25519PublicKey, bob.ed25519PrivateKey);
+      
+      alice.x25519PublicKey.setAll(0, aliceX25519.publicKey);
+      alice.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
+      bob.x25519PublicKey.setAll(0, bobX25519.publicKey);
+      bob.x25519PrivateKey.setAll(0, bobX25519.privateKey);
+      
+      //print_hex("alice ed25519 public key (async)", alice.ed25519PublicKey);
+      //print_hex("bob ed25519 public key (async)", bob.ed25519PublicKey);
+      
+      // Set peer keys
+      alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
+      bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
+      
+      // Generate ephemeral keypair for Alice
+      final aliceEphemeral = await crypto.generateX25519KeypairAsync();
+      alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
+      alice.x25519PrivateKeyEphemeral.setAll(0, aliceEphemeral.privateKey);
+      
+      // Test random generation
+      final randomBytes = crypto.rand(32);
+      print_hex("Random bytes", randomBytes);
+      
+      //print_hex("alice ephemeral public key (async)", alice.x25519PublicKeyEphemeral);
+      
+      successCount++;
+      print('✅ Test $testCount completed successfully');
+      
+    } catch (e, stackTrace) {
+      errorCount++;
+      print('❌ Error in test $testCount: $e');
+      print('Stack trace: $stackTrace');
+    }
+  }
+  
+  print('\n=== Test Summary ===');
+  print('Total tests: $testCount');
+  print('Successful: $successCount');
+  print('Errors: $errorCount');
+  print('Success rate: ${(successCount / testCount * 100).toStringAsFixed(1)}%');
 }
 
 // Async version of Alice-Bob test using Isolate functions
