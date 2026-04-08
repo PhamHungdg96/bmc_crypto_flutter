@@ -1,10 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:bmc_cryptographic_flutter/bmc_cryptographic_flutter.dart' as libcrypt;
 import 'package:bmc_cryptographic_flutter/bmc_protocol.dart' as bmcprotocol;
+import 'package:bmc_cryptographic_flutter/bmc_crypt_file.dart';
 
 final crypto = libcrypt.BmcCrypto();
 
@@ -17,24 +21,43 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'BMC Crypto Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('BMC Crypto Demo'),
+            bottom: const TabBar(
+              tabs: [
+                Tab(text: 'Protocol Tests'),
+                Tab(text: 'File Encrypt'),
+              ],
+            ),
+          ),
+          body: const TabBarView(
+            children: [
+              _ProtocolTestPage(),
+              _FileEncryptPage(),
+            ],
+          ),
+        ),
       ),
-      home: MyHomePage(title: 'BMC Crypto with Isolate Demo'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key? key, required this.title}) : super(key: key);
+// ---------------------------------------------------------------------------
+// Tab 1: Protocol Tests (giữ nguyên logic cũ)
+// ---------------------------------------------------------------------------
 
-  final String title;
+class _ProtocolTestPage extends StatefulWidget {
+  const _ProtocolTestPage();
 
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  State<_ProtocolTestPage> createState() => _ProtocolTestPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _ProtocolTestPageState extends State<_ProtocolTestPage> {
   String _result = '';
   bool _isLoading = false;
 
@@ -44,94 +67,346 @@ class _MyHomePageState extends State<MyHomePage> {
       _result = 'Running tests...\n';
     });
 
-    // Test sync functions
     await _testSyncFunctions();
-    
-    // Test async (isolate) functions
     await _testAsyncFunctions();
-
-    // Test gennerate key functions
     await _testGenerateKeyAsyncFunctions();
 
-    setState(() {
-      _isLoading = false;
-    });
+    setState(() => _isLoading = false);
   }
 
   Future<void> _testSyncFunctions() async {
-    setState(() {
-      _result += '\n=== TESTING SYNC FUNCTIONS ===\n';
-    });
-    
+    setState(() => _result += '\n=== TESTING SYNC FUNCTIONS ===\n');
     final start = DateTime.now();
     funcAliceBobTest();
     final end = DateTime.now();
-    
-    setState(() {
-      _result += 'Sync functions completed in: ${end.difference(start).inMilliseconds}ms\n';
-    });
+    setState(() => _result +=
+        'Sync functions completed in: ${end.difference(start).inMilliseconds}ms\n');
   }
 
   Future<void> _testAsyncFunctions() async {
-    setState(() {
-      _result += '\n=== TESTING ASYNC (ISOLATE) FUNCTIONS ===\n';
-    });
-    
+    setState(() => _result += '\n=== TESTING ASYNC (ISOLATE) FUNCTIONS ===\n');
     final start = DateTime.now();
     await funcAliceBobTestAsync();
     final end = DateTime.now();
-    
-    setState(() {
-      _result += 'Async functions completed in: ${end.difference(start).inMilliseconds}ms\n';
-    });
+    setState(() => _result +=
+        'Async functions completed in: ${end.difference(start).inMilliseconds}ms\n');
   }
 
-  Future<void> _testGenerateKeyAsyncFunctions() async{
-    setState(() {
-      _result += '\n=== TESTING GENERATE KEY ASYNC (ISOLATE) FUNCTIONS ===\n';
-    });
-    
+  Future<void> _testGenerateKeyAsyncFunctions() async {
+    setState(() =>
+        _result += '\n=== TESTING GENERATE KEY ASYNC (ISOLATE) FUNCTIONS ===\n');
     final start = DateTime.now();
     await funcGenKeyTestAsync();
     final end = DateTime.now();
-    
-    setState(() {
-      _result += 'Async gen key functions completed in: ${end.difference(start).inMilliseconds}ms\n';
-    });
+    setState(() => _result +=
+        'Async gen key functions completed in: ${end.difference(start).inMilliseconds}ms\n');
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ElevatedButton(
-              onPressed: _isLoading ? null : _runTest,
-              child: _isLoading 
-                ? CircularProgressIndicator(color: Colors.white)
-                : Text('Run Crypto Tests'),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElevatedButton(
+            onPressed: _isLoading ? null : _runTest,
+            child: _isLoading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text('Run Crypto Tests'),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(_result,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
             ),
-            SizedBox(height: 16),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Text(
-                  _result,
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 12),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tab 2: File Encrypt / Decrypt / Change Password
+// ---------------------------------------------------------------------------
+
+class _FileEncryptPage extends StatefulWidget {
+  const _FileEncryptPage();
+
+  @override
+  State<_FileEncryptPage> createState() => _FileEncryptPageState();
+}
+
+class _FileEncryptPageState extends State<_FileEncryptPage> {
+  final _encryptor = BmcFileEncryptor();
+  final _keyHelper = BmcWrapKeyHelper();
+
+  String  _log          = '';
+  bool    _busy         = false;
+  String? _selectedPath;
+  String? _encryptedPath;
+
+  final _pwCtrl    = TextEditingController();
+  final _newPwCtrl = TextEditingController();
+
+  void _appendLog(String msg) =>
+      setState(() => _log += '${DateTime.now().toIso8601String().substring(11, 23)}  $msg\n');
+
+  // ── KDF ──────────────────────────────────────────────────────────────────
+
+  (Uint8List, Uint8List) _deriveNewKey(String password) {
+    final salt    = _keyHelper.generateSalt();
+    final wrapKey = _keyHelper.deriveWrapKey(password, salt);
+    return (wrapKey, salt);
+  }
+
+  Uint8List _rederiveKey(String password, Uint8List salt) =>
+      _keyHelper.deriveWrapKey(password, salt);
+
+  // ── Chọn file ─────────────────────────────────────────────────────────────
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles();
+    if (result == null || result.files.single.path == null) return;
+    setState(() {
+      _selectedPath  = result.files.single.path!;
+      _encryptedPath = null;
+    });
+    _appendLog('Đã chọn: $_selectedPath');
+  }
+
+  // ── Mã hoá ───────────────────────────────────────────────────────────────
+  //
+  // Cấu trúc file .bmc đầu ra:
+  //   [32B: salt][4B BE: headerLen][76B header][body chunks mã hoá]
+
+  Future<void> _encryptFile() async {
+    if (_selectedPath == null) { _appendLog('⚠ Chưa chọn file'); return; }
+    final password = _pwCtrl.text.trim();
+    if (password.isEmpty) { _appendLog('⚠ Chưa nhập mật khẩu'); return; }
+
+    setState(() => _busy = true);
+    try {
+      _appendLog('Bắt đầu mã hoá...');
+      final sw = Stopwatch()..start();
+
+      final (wrapKey, salt) = _deriveNewKey(password);
+      _appendLog('wrapKey: ${wrapKey}');
+      final tmp = await _encryptor.encryptFile(_selectedPath!, wrapKey);
+
+      final outPath = '${tmp.path}.bmc';
+      final raf     = await File(outPath).open(mode: FileMode.writeOnly);
+      await raf.writeFrom(salt);
+      _appendLog('salt: ${salt}');
+      await raf.writeFrom(await tmp.readAll());
+      await raf.close();
+      await tmp.delete();
+
+      sw.stop();
+      setState(() => _encryptedPath = outPath);
+      _appendLog('✅ Mã hoá xong (${sw.elapsedMilliseconds}ms)');
+      _appendLog('   ↳ $outPath');
+    } catch (e) {
+      _appendLog('❌ Lỗi mã hoá: $e');
+    } finally {
+      setState(() => _busy = false);
+    }
+  }
+
+  // ── Giải mã ──────────────────────────────────────────────────────────────
+
+  Future<void> _decryptFile() async {
+    final src = _encryptedPath ?? _selectedPath;
+    if (src == null) { _appendLog('⚠ Chưa có file mã hoá'); return; }
+    final password = _pwCtrl.text.trim();
+    if (password.isEmpty) { _appendLog('⚠ Chưa nhập mật khẩu'); return; }
+
+    setState(() => _busy = true);
+    try {
+      _appendLog('Bắt đầu giải mã file ${src}...');
+      final sw = Stopwatch()..start();
+
+      final raw     = await File(src).readAsBytes();
+      final salt    = raw.sublist(0, 32);
+      final payload = raw.sublist(32);
+      _appendLog('salt: ${salt}');
+
+      // Ghi payload vào file tạm để giải mã
+      final tmpIn = await File(p.join(Directory.systemTemp.path,"_bmc_dec_in.tmp")).open(mode: FileMode.writeOnly);
+      await tmpIn.writeFrom(payload);
+      await tmpIn.close();
+      
+      _appendLog('file: ${tmpIn.path} with ${payload.length} bytes');
+      final wrapKey = _rederiveKey(password, salt);
+      _appendLog('wrapKey: ${wrapKey}');
+      final tmp     = await _encryptor.decryptFile(tmpIn.path, wrapKey);
+
+      // final decPath = '${tmp.path}.dec';
+      // await File(tmp.path).copy(decPath);
+      // await tmp.delete();
+      // if (await tmpIn.exists()) await tmpIn.delete();
+
+      sw.stop();
+      _appendLog('✅ Giải mã xong (${sw.elapsedMilliseconds}ms)');
+      // _appendLog('   ↳ $decPath');
+    } catch (e) {
+      _appendLog('❌ Lỗi giải mã: $e');
+    } finally {
+      setState(() => _busy = false);
+    }
+  }
+
+  // ── Đổi mật khẩu ─────────────────────────────────────────────────────────
+
+  Future<void> _changePassword() async {
+    final src = _encryptedPath ?? _selectedPath;
+    if (src == null) { _appendLog('⚠ Chưa có file mã hoá'); return; }
+    final oldPw = _pwCtrl.text.trim();
+    final newPw = _newPwCtrl.text.trim();
+    if (oldPw.isEmpty || newPw.isEmpty) {
+      _appendLog('⚠ Nhập đủ mật khẩu cũ và mới');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      _appendLog('Đang đổi mật khẩu...');
+      final sw = Stopwatch()..start();
+
+      final raw     = await File(src).readAsBytes();
+      final oldSalt = raw.sublist(0, 32);
+      final payload = raw.sublist(32);
+
+      final tmpIn = File('${Directory.systemTemp.path}/_bmc_rk_in.tmp');
+      await tmpIn.writeAsBytes(payload, flush: true,);
+
+      final oldWrapKey         = _rederiveKey(oldPw, oldSalt);
+      final (newWrapKey, newSalt) = _deriveNewKey(newPw);
+
+      // Re-wrap: chỉ đổi header, body giữ nguyên
+      final tmp = await _encryptor.changePassword(tmpIn.path, oldWrapKey, newWrapKey);
+
+      // Ghi đè file gốc với salt mới
+      final raf = await File(src).open(mode: FileMode.writeOnly);
+      await raf.writeFrom(newSalt);
+      await raf.writeFrom(await tmp.readAll());
+      await raf.close();
+      await tmp.delete();
+      if (await tmpIn.exists()) await tmpIn.delete();
+
+      sw.stop();
+      _appendLog('✅ Đổi mật khẩu xong (${sw.elapsedMilliseconds}ms)');
+    } catch (e) {
+      _appendLog('❌ Lỗi đổi mật khẩu: $e');
+    } finally {
+      setState(() => _busy = false);
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  void dispose() {
+    _pwCtrl.dispose();
+    _newPwCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ElevatedButton.icon(
+            onPressed: _busy ? null : _pickFile,
+            icon: const Icon(Icons.folder_open),
+            label: Text(_selectedPath != null
+                ? 'File: ${_selectedPath!.split(Platform.pathSeparator).last}'
+                : 'Chọn file'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _pwCtrl,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Mật khẩu',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _newPwCtrl,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Mật khẩu mới (chỉ dùng khi đổi mật khẩu)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _busy ? null : _encryptFile,
+                  icon: const Icon(Icons.lock),
+                  label: const Text('Mã hoá'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _busy ? null : _decryptFile,
+                  icon: const Icon(Icons.lock_open),
+                  label: const Text('Giải mã'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _busy ? null : _changePassword,
+                  icon: const Icon(Icons.key),
+                  label: const Text('Đổi pass'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_busy) const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  _log.isEmpty ? 'Log sẽ hiển thị ở đây...' : _log,
+                  style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: Colors.greenAccent),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
 
 Future<void> funcGenKeyTestAsync() async {
   print('\n--- ASYNC (ISOLATE) GenKey Test ---');

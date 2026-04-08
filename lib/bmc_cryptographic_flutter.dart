@@ -189,7 +189,7 @@ class BmcCrypto {
   Uint8List encryptAEAD(Uint8List plaintext, Uint8List aad, Uint8List messageKey, Uint8List iv){
     assert(plaintext.isNotEmpty);
     assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
-    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+    assert(iv.length == BMC_PROTOCOL_GCM_NONCE_LEN);
 
     final plaintextPtr = plaintext.allocatePointer();
     final messageKeyPtr = messageKey.allocatePointer();
@@ -254,7 +254,7 @@ class BmcCrypto {
   Uint8List decryptAEAD(Uint8List ciphertext, Uint8List aad, Uint8List messageKey, Uint8List iv) {
     assert(ciphertext.isNotEmpty);
     assert(messageKey.length == BMC_PROTOCOL_MESSAGE_KEY_LEN);
-    assert(iv.length == BMC_PROTOCOL_NONCE_LEN);
+    assert(iv.length == BMC_PROTOCOL_GCM_NONCE_LEN);
 
     final ciphertextPtr = ciphertext.allocatePointer();
     final messageKeyPtr = messageKey.allocatePointer();
