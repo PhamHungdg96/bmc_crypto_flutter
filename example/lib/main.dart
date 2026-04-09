@@ -415,38 +415,39 @@ Future<void> funcGenKeyTestAsync() async {
   int successCount = 0;
   int errorCount = 0;
   
-  while (testCount < 10) { // Test 10 lần
+  while (testCount < 10) {
     testCount++;
     print('\n=== Test iteration $testCount ===');
     
     try {
-      // Khai báo context cho Alice và Bob để lưu khóa dài hạn
-      final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
-      final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
+      // Create contexts for long-term keys
+      final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+      final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
 
       final aliceKeypair = await crypto.generateEd25519KeypairAsync();
       final bobKeypair = await crypto.generateEd25519KeypairAsync();
       
-      alice.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
-      alice.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
-      bob.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
-      bob.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
+      aliceCtx.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
+      aliceCtx.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
+      bobCtx.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
+      bobCtx.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
       
       // Convert Ed25519 to X25519 using async functions
-      final aliceX25519 = await crypto.convertEd25519ToX25519Async(alice.ed25519PublicKey, alice.ed25519PrivateKey);
-      final bobX25519 = await crypto.convertEd25519ToX25519Async(bob.ed25519PublicKey, bob.ed25519PrivateKey);
+      final aliceX25519 = await crypto.convertEd25519ToX25519Async(aliceCtx.ed25519PublicKey, aliceCtx.ed25519PrivateKey);
+      final bobX25519 = await crypto.convertEd25519ToX25519Async(bobCtx.ed25519PublicKey, bobCtx.ed25519PrivateKey);
       
-      alice.x25519PublicKey.setAll(0, aliceX25519.publicKey);
-      alice.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
-      bob.x25519PublicKey.setAll(0, bobX25519.publicKey);
-      bob.x25519PrivateKey.setAll(0, bobX25519.privateKey);
+      aliceCtx.x25519PublicKey.setAll(0, aliceX25519.publicKey);
+      aliceCtx.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
+      bobCtx.x25519PublicKey.setAll(0, bobX25519.publicKey);
+      bobCtx.x25519PrivateKey.setAll(0, bobX25519.privateKey);
       
-      //print_hex("alice ed25519 public key (async)", alice.ed25519PublicKey);
-      //print_hex("bob ed25519 public key (async)", bob.ed25519PublicKey);
+      // Create sessions for testing
+      final alice = aliceCtx.createSession('test_session_$testCount');
+      final bob = bobCtx.createSession('test_session_$testCount');
       
       // Set peer keys
-      alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
-      bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
+      alice.setPeerKey(bobCtx.ed25519PublicKey, bobCtx.x25519PublicKey);
+      bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
       
       // Generate ephemeral keypair for Alice
       final aliceEphemeral = await crypto.generateX25519KeypairAsync();
@@ -480,34 +481,38 @@ Future<void> funcGenKeyTestAsync() async {
 Future<void> funcAliceBobTestAsync() async {
   print('\n--- ASYNC (ISOLATE) Alice-Bob Test ---');
   
-  // Khai báo context cho Alice và Bob để lưu khóa dài hạn
-  final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  // Create contexts for long-term keys
+  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
   
   // Generate keypairs using async functions
   final aliceKeypair = await crypto.generateEd25519KeypairAsync();
   final bobKeypair = await crypto.generateEd25519KeypairAsync();
   
-  alice.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
-  alice.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
-  bob.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
-  bob.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
+  aliceCtx.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
+  aliceCtx.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
+  bobCtx.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
+  bobCtx.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
   
   // Convert Ed25519 to X25519 using async functions
-  final aliceX25519 = await crypto.convertEd25519ToX25519Async(alice.ed25519PublicKey, alice.ed25519PrivateKey);
-  final bobX25519 = await crypto.convertEd25519ToX25519Async(bob.ed25519PublicKey, bob.ed25519PrivateKey);
+  final aliceX25519 = await crypto.convertEd25519ToX25519Async(aliceCtx.ed25519PublicKey, aliceCtx.ed25519PrivateKey);
+  final bobX25519 = await crypto.convertEd25519ToX25519Async(bobCtx.ed25519PublicKey, bobCtx.ed25519PrivateKey);
   
-  alice.x25519PublicKey.setAll(0, aliceX25519.publicKey);
-  alice.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
-  bob.x25519PublicKey.setAll(0, bobX25519.publicKey);
-  bob.x25519PrivateKey.setAll(0, bobX25519.privateKey);
+  aliceCtx.x25519PublicKey.setAll(0, aliceX25519.publicKey);
+  aliceCtx.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
+  bobCtx.x25519PublicKey.setAll(0, bobX25519.publicKey);
+  bobCtx.x25519PrivateKey.setAll(0, bobX25519.privateKey);
   
-  print_hex("alice ed25519 public key (async)", alice.ed25519PublicKey);
-  print_hex("bob ed25519 public key (async)", bob.ed25519PublicKey);
+  print_hex("alice ed25519 public key (async)", aliceCtx.ed25519PublicKey);
+  print_hex("bob ed25519 public key (async)", bobCtx.ed25519PublicKey);
+  
+  // Create sessions for communication
+  final alice = aliceCtx.createSession('alice_session_async');
+  final bob = bobCtx.createSession('bob_session_async');
   
   // Set peer keys
-  alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
-  bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
+  alice.setPeerKey(bobCtx.ed25519PublicKey, bobCtx.x25519PublicKey);
+  bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
   
   // Generate ephemeral keypair for Alice
   final aliceEphemeral = await crypto.generateX25519KeypairAsync();
@@ -586,40 +591,40 @@ void print_hex(String title, Uint8List data) {
 }
 
 void funcAliceBobTest(){
-  // Khai báo context cho Alice và Bob để lưu khóa dài hạn
-  final alice = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  final bob = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  //init long term key and publist public key to server
-  alice.initLongTermKey();
-  bob.initLongTermKey();
-  //print long term key
-  print_hex("alice ed25519 public key", alice.ed25519PublicKey);
-  print_hex("alice ed25519 private key", alice.ed25519PrivateKey);
-  print_hex("alice x25519 public key", alice.x25519PublicKey);
-  print_hex("alice x25519 private key", alice.x25519PrivateKey);
-  print_hex("bob ed25519 public key", bob.ed25519PublicKey);
-  print_hex("bob ed25519 private key", bob.ed25519PrivateKey);
-  print_hex("bob x25519 public key", bob.x25519PublicKey);
-  print_hex("bob x25519 private key", bob.x25519PrivateKey);
-  //set peer key from server
-  alice.setPeerKey(bob.ed25519PublicKey, bob.x25519PublicKey);
-  bob.setPeerKey(alice.ed25519PublicKey, alice.x25519PublicKey);
+  // Create contexts for Alice and Bob (hold long-term keys)
+  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  
+  // Initialize long-term keys
+  aliceCtx.initLongTermKey();
+  bobCtx.initLongTermKey();
+  
+  // Print long-term keys
+  print_hex("alice ed25519 public key", aliceCtx.ed25519PublicKey);
+  print_hex("bob ed25519 public key", bobCtx.ed25519PublicKey);
+  
+  // Create a session for Alice-Bob communication
+  final alice = aliceCtx.createSession('alice_to_bob');
+  final bob = bobCtx.createSession('bob_from_alice');
+  
+  // Set peer keys
+  alice.setPeerKey(bobCtx.ed25519PublicKey, bobCtx.x25519PublicKey);
+  bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
 
-  //Alice send to Bob
-  //generate ephemeral key
+  // Alice generates ephemeral key
   if(alice.generateEphemeralKey() != 0){
     print("Alice generate ephemeral key failed");
     return;
   }
-  //print ephemeral key
-  print_hex("alice ephemeral public key", alice.x25519PublicKeyEphemeral);
-  print_hex("alice ephemeral private key", alice.x25519PrivateKeyEphemeral);
-  //sign ephemeral public key
+  
+  // Sign ephemeral public key
   final signature = alice.signEphemeralPublicKey();
   print_hex("alice signature", signature);
-  //caculate self secret shared
+  
+  // Calculate self secret shared
   alice.caculateSelfSecretShared();
   print_hex("alice secret shared", alice.secretShared);
+  
   alice.deriveSessionSelfKey();
   print_hex("alice session key", alice.messageCtx.chainKey);
 
@@ -627,33 +632,33 @@ void funcAliceBobTest(){
 
   alice.deriveMessageKey(aad);
   print_hex("alice message key", alice.messageCtx.messageKey);
-  //Alice send to Bob (first message include ephemeral public key;signature;first cipher text;hmacsha256 of first cipher text)
+  
+  // Encrypt message
   final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob!'));
   final firstCipherText = alice.encryptMessage(firstMessage, aad);
   print_hex("alice first cipher text", firstCipherText);
 
-  //Bob verify ephemeral public key
+  // Bob verify ephemeral public key
   if(bob.verifyEphemeralPublicKey(signature, alice.x25519PublicKeyEphemeral) != 0){
     print("Bob verify ephemeral public key failed");
     return;
   }
   print("Bob verify ephemeral public key success");
-  //caculate peer secret shared
+  
+  // Calculate peer secret shared
   bob.caculatePeerSecretShared(alice.x25519PublicKeyEphemeral);
   print_hex("bob secret shared", bob.secretShared);
-  //derive session key
   
   bob.deriveSessionPeerKey(alice.x25519PublicKeyEphemeral);
   print_hex("bob session key", bob.messageCtx.chainKey);
-  //derive message key
   
   bob.deriveMessageKey(aad);
   print_hex("bob message key", bob.messageCtx.messageKey);
-  //decrypt first message
+  
+  // Decrypt message
   final firstPlainText = bob.decryptMessage(firstCipherText, aad);
   print_hex("bob first plain text", firstPlainText);
   print("bob first plain text: ${utf8.decode(firstPlainText)}");
-  
 }
 
 void funAES256CBCTest(){
