@@ -11,18 +11,19 @@ String tempPathFor(String sourcePath) =>
 
 /// Đọc file tại [path] theo từng chunk có kích thước [chunkSize] byte.
 /// [startOffset] cho phép bỏ qua một số byte đầu (ví dụ: phần header).
-Stream<Uint8List> readFileChunks(String path, int chunkSize, {int startOffset = 0}) async* {
+Stream<Uint8List> readFileChunks(String path, int chunkSize, {int startOffset = 0, int? endOffset}) async* {
   final raf = await File(path).open(mode: FileMode.read);
   if (startOffset > 0) await raf.setPosition(startOffset);
-  var i=0;
+  int? remaining = endOffset != null ? endOffset - startOffset : null;
+  var i = 0;
   try {
-    while (true) {
-      final chunk = await raf.read(chunkSize);
+    while (remaining == null || remaining > 0) {
+      final toRead = (remaining != null && remaining < chunkSize) ? remaining : chunkSize;
+      final chunk = await raf.read(toRead);
       // print('break ${path} ${i} ${chunk.length}');
-      if (chunk.isEmpty){
-        break;
-      }
-      i+=1;
+      if (chunk.isEmpty) break;
+      if (remaining != null) remaining -= chunk.length;
+      i += 1;
       yield chunk;
     }
   // }catch(e){
@@ -138,6 +139,7 @@ class BmcChunkFileProcessor {
     String sourcePath, {
     Uint8List? header,
     int bodyStartOffset = 0,
+    int? bodyEndOffset,
     Future<Uint8List> Function(Uint8List chunk)? transform,
   }) async {
     assert(!kIsWeb, 'processFile không hỗ trợ trên web. Dùng processBytes().');
@@ -152,7 +154,7 @@ class BmcChunkFileProcessor {
     // Khởi tạo file đích; ghi header (có length-prefix) nếu được cung cấp.
     await initFile(destPath, header);
 
-    await for (final chunk in readFileChunks(sourcePath, chunkSize, startOffset: bodyStartOffset)) {
+    await for (final chunk in readFileChunks(sourcePath, chunkSize, startOffset: bodyStartOffset, endOffset: bodyEndOffset)) {
       final out = transform != null ? await transform(chunk) : chunk;
       await appendBytes(destPath, out);
     }
@@ -170,10 +172,11 @@ class BmcChunkFileProcessor {
 // Cấu trúc file đầu ra:
 //   [4B BE: headerLen]
 //   [headerLen bytes]:
-//       [12B : bodyNonce   – nonce AES-GCM dùng mã hoá từng chunk]
-//       [16B : wrapNonce   – nonce AES-GCM dùng bọc content key]
-//       [48B : wrappedKey  – content key (32B) + GCM tag (16B)]
+//       [12B : bodyNonce   – nonce cơ sở cho chunk; kết hợp counter tạo nonce mỗi chunk]
+//       [12B : wrapNonce   – nonce AES-GCM dùng bọc các khoá]
+//       [80B : wrappedKeys – encrypt(contentKey(32) ‖ hmacKey(32)) + GCM tag(16)]
 //   [body : các chunk đã mã hoá, nối tiếp nhau]
+//   [32B : HMAC-SHA256 trên tất cả GCM tag của các chunk]
 //
 // Khoá bọc (wrapKey) được dẫn xuất ngoài lớp này (ví dụ: PBKDF / HKDF),
 // người dùng truyền vào dưới dạng Uint8List 32 bytes.
@@ -189,14 +192,16 @@ class BmcFileEncryptor {
   }) : _crypto = crypto ?? libcrypt.BmcCrypto();
 
   // ── Hằng số kích thước ──────────────────────────────────────────────────
-  static const int _kGcmNonceLen  = libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN; // 12
-  static const int _kAesNonceLen  = libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN;      // 12
-  static const int _kKeyLen       = libcrypt.BMC_PROTOCOL_KEY_LEN;        // 32
-  static const int _kGcmTagLen    = libcrypt.BMC_PROTOCOL_GCM_TAG_LEN;    // 16
-  // wrappedKey = encrypt(contentKey[32]) via AEAD → ciphertext 32B + tag 16B = 48B
-  static const int _kWrappedKeyLen = _kKeyLen + _kGcmTagLen;              // 48
-  // header payload = bodyNonce(12) + wrapNonce(16) + wrappedKey(48) = 76B
-  static const int _kHeaderPayloadLen = _kGcmNonceLen + _kAesNonceLen + _kWrappedKeyLen; // 76
+  static const int _kGcmNonceLen   = libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN; // 12
+  static const int _kAesNonceLen   = libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN; // 12
+  static const int _kKeyLen        = libcrypt.BMC_PROTOCOL_KEY_LEN;       // 32
+  static const int _kGcmTagLen     = libcrypt.BMC_PROTOCOL_GCM_TAG_LEN;   // 16
+  static const int _kHmacKeyLen    = 32;                                   // 32
+  static const int _kHmacDigestLen = 32;                                   // 32
+  // wrappedKeys = encrypt(contentKey(32) ‖ hmacKey(32)) via AEAD → 64B ciphertext + tag 16B = 80B
+  static const int _kWrappedKeyLen = _kKeyLen + _kHmacKeyLen + _kGcmTagLen; // 80
+  // header payload = bodyNonce(12) + wrapNonce(12) + wrappedKeys(80) = 104B
+  static const int _kHeaderPayloadLen = _kGcmNonceLen + _kAesNonceLen + _kWrappedKeyLen; // 104
 
   // ── Mã hoá ──────────────────────────────────────────────────────────────
 
@@ -210,22 +215,30 @@ class BmcFileEncryptor {
     assert(!kIsWeb, 'encryptFile không hỗ trợ web. Dùng encryptBytes().');
 
     final header = _buildHeader(wrapKey);
-    final contentKey = header.$1;
-    final bodyNonce  = header.$2;
-    final headerBytes = header.$3;
+    final contentKey  = header.$1;
+    final hmacKey     = header.$2;
+    final bodyNonce   = header.$3;
+    final headerBytes = header.$4;
     // print('contentKey: ${contentKey}');
     
+    int chunkCounter = 0;
     Uint8List prevTag = Uint8List(0);
+    final allTags = <Uint8List>[];
     final processor = BmcChunkFileProcessor(chunkSize: chunkSize);
-    return processor.processFile(
+    final tempFile = await processor.processFile(
       sourcePath,
       header: headerBytes,
       transform: (chunk) async {
-        final out = _encryptChunk(chunk, contentKey, bodyNonce, prevTag);
+        final chunkNonce = _deriveChunkNonce(bodyNonce, chunkCounter);
+        final out = _encryptChunk(chunk, contentKey, chunkNonce, prevTag);
         prevTag = out.sublist(out.length - _kGcmTagLen);
+        allTags.add(Uint8List.fromList(prevTag));
+        chunkCounter++;
         return out;
       },
     );
+    await appendBytes(tempFile.path, _computeHmac(hmacKey, allTags));
+    return tempFile;
   }
 
   // ── Giải mã ─────────────────────────────────────────────────────────────
@@ -243,73 +256,106 @@ class BmcFileEncryptor {
     final headerBytes = await readHeader(sourcePath);
     final keys = _parseHeader(headerBytes, wrapKey);
     final contentKey = keys.$1;
-    final bodyNonce  = keys.$2;
+    final hmacKey    = keys.$2;
+    final bodyNonce  = keys.$3;
     // print('contentKey: ${contentKey} \n ${sourcePath}');
 
     // Tính offset bắt đầu phần body: bỏ qua [4B headerLen] + [headerPayload]
     final bodyStartOffset = _kHeaderLenBytes + headerBytes.length;
+    final fileSize = await File(sourcePath).length();
+    // Body kết thúc trước 32 byte HMAC cuối file
+    final bodyEndOffset = fileSize - _kHmacDigestLen;
 
+    int chunkCounter = 0;
     Uint8List prevTag = Uint8List(0);
+    final allTags = <Uint8List>[];
     final processor = BmcChunkFileProcessor(chunkSize: chunkSize + _kGcmTagLen);
-    return processor.processFile(
+    final tempFile = await processor.processFile(
       sourcePath,
       bodyStartOffset: bodyStartOffset,
+      bodyEndOffset: bodyEndOffset,
       // Không ghi header vào file giải mã
       transform: (chunk) async {
+        final chunkNonce = _deriveChunkNonce(bodyNonce, chunkCounter);
         final tag = chunk.sublist(chunk.length - _kGcmTagLen);
-        final out = _decryptChunk(chunk, contentKey, bodyNonce, prevTag);
+        allTags.add(Uint8List.fromList(tag));
+        final out = _decryptChunk(chunk, contentKey, chunkNonce, prevTag);
         prevTag = tag;
+        chunkCounter++;
         return out;
       },
     );
+    // Xác thực HMAC sau khi giải mã
+    final fileBytes = await File(sourcePath).readAsBytes();
+    final storedHmac = fileBytes.sublist(fileSize - _kHmacDigestLen);
+    if (!_constantTimeEquals(_computeHmac(hmacKey, allTags), storedHmac)) {
+      await tempFile.delete();
+      throw StateError('HMAC xác thực thất bại: file bị hỏng hoặc sai wrapKey.');
+    }
+    return tempFile;
   }
 
   // ── Helpers nội bộ ──────────────────────────────────────────────────────
-  /// Tạo content key và nonce ngẫu nhiên, bọc content key bằng wrapKey.
-  /// Trả về (contentKey, bodyNonce, headerPayloadBytes).
-  (Uint8List, Uint8List, Uint8List) _buildHeader(Uint8List wrapKey) {
+  /// Tạo content key, HMAC key và nonce ngẫu nhiên; bọc cả hai khoá bằng wrapKey.
+  /// Trả về (contentKey, hmacKey, bodyNonce, headerPayloadBytes).
+  (Uint8List, Uint8List, Uint8List, Uint8List) _buildHeader(Uint8List wrapKey) {
     final contentKey = _crypto.rand(_kKeyLen);        // 32B
-    final bodyNonce  = _crypto.rand(_kGcmNonceLen);   // 12B – nonce GCM cho body
+    final hmacKey    = _crypto.rand(_kHmacKeyLen);    // 32B
+    final bodyNonce  = _crypto.rand(_kGcmNonceLen);   // 12B – nonce cơ sở cho chunk
     final wrapNonce  = _crypto.rand(_kAesNonceLen);   // 12B – nonce AES-GCM wrap
 
-    // Bọc content key: encryptAEAD(contentKey, aad=[], wrapKey, wrapNonce)
-    // Kết quả: 32B ciphertext + 16B tag = 48B nhờ AEAD appends tag
-    final wrappedKey = _crypto.encryptAEAD(
-      contentKey,
+    // Bọc contentKey ‖ hmacKey: encryptAEAD(contentKey‖hmacKey, aad=[], wrapKey, wrapNonce)
+    // Kết quả: 64B ciphertext + 16B tag = 80B
+    final plainKeys = (BytesBuilder()..add(contentKey)..add(hmacKey)).toBytes();
+    final wrappedKeys = _crypto.encryptAEAD(
+      plainKeys,
       Uint8List(0),   // aad rỗng
       wrapKey,
       wrapNonce,
     );
 
-    // header = bodyNonce(12) || wrapNonce(16) || wrappedKey(48)
+    // header = bodyNonce(12) ‖ wrapNonce(12) ‖ wrappedKeys(80)
     final header = BytesBuilder()
       ..add(bodyNonce)
       ..add(wrapNonce)
-      ..add(wrappedKey);
+      ..add(wrappedKeys);
 
-    return (contentKey, bodyNonce, header.toBytes());
+    return (contentKey, hmacKey, bodyNonce, header.toBytes());
   }
 
-  /// Giải mã header, khôi phục content key và body nonce.
-  (Uint8List, Uint8List) _parseHeader(Uint8List headerBytes, Uint8List wrapKey) {
+  /// Giải mã header, khôi phục content key, HMAC key và body nonce.
+  (Uint8List, Uint8List, Uint8List) _parseHeader(Uint8List headerBytes, Uint8List wrapKey) {
     assert(
       headerBytes.length == _kHeaderPayloadLen,
       'Header không hợp lệ: cần $_kHeaderPayloadLen bytes, nhận ${headerBytes.length}.',
     );
 
     int off = 0;
-    final bodyNonce  = headerBytes.sublist(off, off += _kGcmNonceLen);   // 12B
-    final wrapNonce  = headerBytes.sublist(off, off += _kAesNonceLen);   // 16B
-    final wrappedKey = headerBytes.sublist(off, off += _kWrappedKeyLen); // 48B
+    final bodyNonce   = headerBytes.sublist(off, off += _kGcmNonceLen);   // 12B
+    final wrapNonce   = headerBytes.sublist(off, off += _kAesNonceLen);   // 12B
+    final wrappedKeys = headerBytes.sublist(off, off += _kWrappedKeyLen); // 80B
 
-    final contentKey = _crypto.decryptAEAD(
-      wrappedKey,
+    final plainKeys = _crypto.decryptAEAD(
+      wrappedKeys,
       Uint8List(0),   // aad rỗng
       wrapKey,
       wrapNonce,
     );
+    final contentKey = plainKeys.sublist(0, _kKeyLen);
+    final hmacKey    = plainKeys.sublist(_kKeyLen, _kKeyLen + _kHmacKeyLen);
 
-    return (contentKey, bodyNonce);
+    return (contentKey, hmacKey, bodyNonce);
+  }
+
+  /// Dẫn xuất nonce cho chunk thứ [counter] bằng cách XOR counter vào 4 byte cuối của [baseNonce].
+  Uint8List _deriveChunkNonce(Uint8List baseNonce, int counter) {
+    final nonce = Uint8List.fromList(baseNonce);
+    final cb = ByteData(4)..setUint32(0, counter, Endian.big);
+    final offset = nonce.length - 4;
+    for (int i = 0; i < 4; i++) {
+      nonce[offset + i] ^= cb.getUint8(i);
+    }
+    return nonce;
   }
 
   /// Mã hoá một chunk bằng AES-256-GCM. [aad] là tag của chunk trước (empty cho chunk đầu).
@@ -321,6 +367,28 @@ class BmcFileEncryptor {
   /// Giải mã một chunk bằng AES-256-GCM. [aad] là tag của chunk trước (empty cho chunk đầu).
   Uint8List _decryptChunk(Uint8List chunk, Uint8List key, Uint8List nonce, Uint8List aad) {
     return _crypto.decryptAEAD(chunk, aad, key, nonce);
+  }
+      
+  /// Tính HMAC-SHA256 lần lượt trên các [tags] của từng chunk.
+  Uint8List _computeHmac(Uint8List key, List<Uint8List> tags) {
+    final ctx = _crypto.initHmacSha256(key);
+    for (final tag in tags) {
+      _crypto.updateHmacSha256(ctx, tag);
+    }
+    final out = Uint8List(_kHmacDigestLen);
+    _crypto.finishHmacSha256(ctx, out);
+    _crypto.clearHmacSha256(ctx);
+    return out;
+  }
+
+  /// So sánh hai Uint8List trong thời gian hằng số để tránh timing attack.
+  bool _constantTimeEquals(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    int diff = 0;
+    for (int i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
   }
       
 
@@ -340,21 +408,23 @@ class BmcFileEncryptor {
     assert(newWrapKey.length == _kKeyLen, 'newWrapKey phải đúng 32 bytes');
     assert(!kIsWeb, 'changePassword không hỗ trợ web.');
 
-    // 1. Đọc header cũ → lấy contentKey và bodyNonce
+    // 1. Đọc header cũ → lấy contentKey, hmacKey và bodyNonce
     final oldHeader = await readHeader(sourcePath);
     final keys = _parseHeader(oldHeader, oldWrapKey);
     final contentKey = keys.$1;
-    final bodyNonce  = keys.$2;
+    final hmacKey    = keys.$2;
+    final bodyNonce  = keys.$3;
 
-    // 2. Bọc lại contentKey bằng newWrapKey với wrapNonce mới
+    // 2. Bọc lại contentKey ‖ hmacKey bằng newWrapKey với wrapNonce mới
     final newWrapNonce  = _crypto.rand(_kAesNonceLen);
-    final newWrappedKey = _crypto.encryptAEAD(
-      contentKey, Uint8List(0), newWrapKey, newWrapNonce,
+    final plainKeys     = (BytesBuilder()..add(contentKey)..add(hmacKey)).toBytes();
+    final newWrappedKeys = _crypto.encryptAEAD(
+      plainKeys, Uint8List(0), newWrapKey, newWrapNonce,
     );
     final newHeaderBytes = (BytesBuilder()
           ..add(bodyNonce)
           ..add(newWrapNonce)
-          ..add(newWrappedKey))
+          ..add(newWrappedKeys))
         .toBytes();
 
     // 3. Đọc phần body cũ (raw encrypted chunks)
