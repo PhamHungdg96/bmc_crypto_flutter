@@ -480,103 +480,85 @@ Future<void> funcGenKeyTestAsync() async {
 // Async version of Alice-Bob test using Isolate functions
 Future<void> funcAliceBobTestAsync() async {
   print('\n--- ASYNC (ISOLATE) Alice-Bob Test ---');
-  
-  // Create contexts for long-term keys
+
   final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
   final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  
-  // Generate keypairs using async functions
+
   final aliceKeypair = await crypto.generateEd25519KeypairAsync();
   final bobKeypair = await crypto.generateEd25519KeypairAsync();
-  
+
   aliceCtx.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
   aliceCtx.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
   bobCtx.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
   bobCtx.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
-  
-  // Convert Ed25519 to X25519 using async functions
-  final aliceX25519 = await crypto.convertEd25519ToX25519Async(aliceCtx.ed25519PublicKey, aliceCtx.ed25519PrivateKey);
-  final bobX25519 = await crypto.convertEd25519ToX25519Async(bobCtx.ed25519PublicKey, bobCtx.ed25519PrivateKey);
-  
+
+  final aliceX25519 = await crypto.convertEd25519ToX25519Async(
+    aliceCtx.ed25519PublicKey,
+    aliceCtx.ed25519PrivateKey,
+  );
+  final bobX25519 = await crypto.convertEd25519ToX25519Async(
+    bobCtx.ed25519PublicKey,
+    bobCtx.ed25519PrivateKey,
+  );
+
   aliceCtx.x25519PublicKey.setAll(0, aliceX25519.publicKey);
   aliceCtx.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
   bobCtx.x25519PublicKey.setAll(0, bobX25519.publicKey);
   bobCtx.x25519PrivateKey.setAll(0, bobX25519.privateKey);
-  
+
   print_hex("alice ed25519 public key (async)", aliceCtx.ed25519PublicKey);
   print_hex("bob ed25519 public key (async)", bobCtx.ed25519PublicKey);
-  
-  // Create sessions for communication
-  final alice = aliceCtx.createSession('alice_session_async');
-  final bob = bobCtx.createSession('bob_session_async');
-  
-  // Set peer keys
+
+  final alice = aliceCtx.createSession('alice_session_to_bob');
+  final bob = bobCtx.createSession('bob_session_to_alice');
+
   alice.setPeerKey(bobCtx.ed25519PublicKey, bobCtx.x25519PublicKey);
   bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
-  
-  // Generate ephemeral keypair for Alice
+
   final aliceEphemeral = await crypto.generateX25519KeypairAsync();
   alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
   alice.x25519PrivateKeyEphemeral.setAll(0, aliceEphemeral.privateKey);
-  
+
   print_hex("alice ephemeral public key (async)", alice.x25519PublicKeyEphemeral);
-  
-  // Sign ephemeral public key using async function
+
   final signature = await alice.signEphemeralPublicKeyAsync();
   print_hex("alice signature (async)", signature);
-  
-  // Calculate secret shared using async function
-  final aliceSecret = await alice.calculateSelfSecretSharedAsync();
-  alice.secretShared.setAll(0, aliceSecret);
+
+  await alice.calculateSelfSecretSharedAsync();
   print_hex("alice secret shared (async)", alice.secretShared);
-  
-  // Derive session key using async function
-  final aliceSessionKey = await alice.deriveSessionSelfKeyAsync();
-  alice.messageCtx.chainKey.setAll(0, aliceSessionKey);
+
+  await alice.deriveSessionSelfKeyAsync();
   print_hex("alice session key (async)", alice.messageCtx.chainKey);
 
-  final Uint8List aad = await crypto.rand(32);
-  
-  // Derive message key using async function
-  final aliceMessageKeyResult = await alice.deriveMessageKeyAsync(aad);
-  alice.messageCtx.chainKey.setAll(0, aliceMessageKeyResult.chainKey);
-  alice.messageCtx.messageKey.setAll(0, aliceMessageKeyResult.messageKey);
-  alice.messageCtx.hmacKey.setAll(0, aliceMessageKeyResult.hmacKey);
-  alice.messageCtx.nonce.setAll(0, aliceMessageKeyResult.nonce);
+  final Uint8List aad = crypto.rand(32);
+
+  await alice.deriveMessageKeyAsync(aad);
   print_hex("alice message key (async)", alice.messageCtx.messageKey);
-  
-  // Encrypt message using async function
-  final firstMessage = Uint8List.fromList(utf8.encode('Hello, Bob! (from Isolate)'));
+
+  final firstMessage =
+      Uint8List.fromList(utf8.encode('Hello, Bob! (from Isolate)'));
   final firstCipherText = await alice.encryptMessageAsync(firstMessage, aad);
   print_hex("alice first cipher text (async)", firstCipherText);
-  
-  // Bob verify ephemeral public key using async function
-  final verifyResult = await bob.verifyEphemeralPublicKeyAsync(signature, alice.x25519PublicKeyEphemeral);
+
+  final verifyResult = await bob.verifyEphemeralPublicKeyAsync(
+    signature,
+    alice.x25519PublicKeyEphemeral,
+  );
   if (!verifyResult) {
     print("Bob verify ephemeral public key failed");
     return;
   }
   print("✅ Bob verify ephemeral public key success (async)");
-  
-  // Calculate peer secret shared using async function
-  final bobSecret = await bob.calculatePeerSecretSharedAsync(alice.x25519PublicKeyEphemeral);
-  bob.secretShared.setAll(0, bobSecret);
+
+  await bob.calculatePeerSecretSharedAsync(alice.x25519PublicKeyEphemeral);
   print_hex("bob secret shared (async)", bob.secretShared);
-  
-  // Derive session key using async function
-  final bobSessionKey = await bob.deriveSessionPeerKeyAsync(alice.x25519PublicKeyEphemeral);
-  bob.messageCtx.chainKey.setAll(0, bobSessionKey);
+
+  await bob.deriveSessionPeerKeyAsync(alice.x25519PublicKeyEphemeral);
   print_hex("bob session key (async)", bob.messageCtx.chainKey);
-  
-  // Derive message key using async function
-  final bobMessageKeyResult = await bob.deriveMessageKeyAsync(aad);
-  bob.messageCtx.chainKey.setAll(0, bobMessageKeyResult.chainKey);
-  bob.messageCtx.messageKey.setAll(0, bobMessageKeyResult.messageKey);
-  bob.messageCtx.hmacKey.setAll(0, bobMessageKeyResult.hmacKey);
-  bob.messageCtx.nonce.setAll(0, bobMessageKeyResult.nonce);
+
+  await bob.deriveMessageKeyAsync(aad);
   print_hex("bob message key (async)", bob.messageCtx.messageKey);
-  
-  // Decrypt message using async function
+
   final firstPlainText = await bob.decryptMessageAsync(firstCipherText, aad);
   print_hex("bob first plain text (async)", firstPlainText);
   print("✅ bob first plain text (async): ${utf8.decode(firstPlainText)}");

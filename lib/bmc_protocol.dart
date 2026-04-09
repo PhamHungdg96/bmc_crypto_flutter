@@ -13,6 +13,31 @@ class BmcProtocolMessageCtx{
 // ==================== SESSION ====================
 /// Per-session state (ephemeral, peer key, message context)
 class BmcProtocolSession {
+  bool _isClosed = false;
+
+  bool get isClosed => _isClosed;
+
+  void _clearBytes(Uint8List bytes) {
+    bytes.fillRange(0, bytes.length, 0);
+  }
+
+  void close() {
+    if (_isClosed) return;
+
+    _clearBytes(ed25519PublicKeyPeer);
+    _clearBytes(x25519PublicKeyPeer);
+    _clearBytes(x25519PrivateKeyEphemeral);
+    _clearBytes(x25519PublicKeyEphemeral);
+    _clearBytes(secretShared);
+
+    _clearBytes(messageCtx.chainKey);
+    _clearBytes(messageCtx.messageKey);
+    _clearBytes(messageCtx.hmacKey);
+    _clearBytes(messageCtx.nonce);
+
+    _isClosed = true;
+  }
+
   final String sessionId;
   final libcrypt.BmcCrypto crypto;
   
@@ -116,6 +141,12 @@ class BmcProtocolSession {
     return ret;
   }
 
+  int setChainKey(Uint8List value) {
+    assert(value.length == libcrypt.BMC_PROTOCOL_CHAIN_KEY_LEN);
+    messageCtx.chainKey.setAll(0, value);
+    return 0;
+  }
+
   // Derive message key
   int deriveMessageKey(Uint8List salt){
     final iv = Uint8List(libcrypt.BMC_PROTOCOL_NONCE_LEN);
@@ -128,61 +159,103 @@ class BmcProtocolSession {
   // Encrypt message
   Uint8List encryptMessage(Uint8List message, Uint8List aad){
     assert(message.isNotEmpty);
-    final ciphertext = crypto.encryptAEAD(message, aad, messageCtx.messageKey, messageCtx.nonce);
+    final ciphertext = crypto.encryptAEAD(message, aad, messageCtx.messageKey, messageCtx.nonce.sublist(0,libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN));
     return ciphertext;
   }
 
   // Decrypt message
   Uint8List decryptMessage(Uint8List ciphertext, Uint8List aad){
     assert(ciphertext.isNotEmpty);
-    final plaintext = crypto.decryptAEAD(ciphertext, aad, messageCtx.messageKey, messageCtx.nonce);
+    final plaintext = crypto.decryptAEAD(ciphertext, aad, messageCtx.messageKey, messageCtx.nonce.sublist(0,libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN));
     return plaintext;
   }
 
   // ==================== ASYNC FUNCTIONS ====================
   Future<Uint8List> signEphemeralPublicKeyAsync() async {
     final params = _SignEphemeralParams(x25519PublicKeyEphemeral, ed25519PrivateKey);
-    return await compute(_signEphemeralPublicKeyIsolate, params);
+    return compute(_signEphemeralPublicKeyIsolate, params);
   }
 
   Future<bool> verifyEphemeralPublicKeyAsync(Uint8List signature, Uint8List x25519PublicKeyEphemeralPeer) async {
     final params = _VerifyEphemeralParams(signature, x25519PublicKeyEphemeralPeer, ed25519PublicKeyPeer);
-    return await compute(_verifyEphemeralPublicKeyIsolate, params);
+    return compute(_verifyEphemeralPublicKeyIsolate, params);
   }
 
-  Future<Uint8List> calculateSelfSecretSharedAsync() async {
-    final params = _CalculateSecretParams(x25519PrivateKeyEphemeral, x25519PublicKeyPeer);
-    return await compute(_calculateSecretSharedIsolate, params);
+  Future<int> calculateSelfSecretSharedAsync() async {
+    final params = _CalculateSecretParams(
+      x25519PrivateKeyEphemeral,
+      x25519PublicKeyPeer,
+    );
+    final secret = await compute(_calculateSecretSharedIsolate, params);
+    secretShared.setAll(0, secret);
+    return 0;
   }
 
-  Future<Uint8List> calculatePeerSecretSharedAsync(Uint8List x25519PublicKeyEphemeralPeer) async {
-    final params = _CalculateSecretParams(x25519PrivateKey, x25519PublicKeyEphemeralPeer);
-    return await compute(_calculateSecretSharedIsolate, params);
+  Future<int> calculatePeerSecretSharedAsync(
+    Uint8List x25519PublicKeyEphemeralPeer,
+  ) async {
+    final params = _CalculateSecretParams(
+      x25519PrivateKey,
+      x25519PublicKeyEphemeralPeer,
+    );
+    final secret = await compute(_calculateSecretSharedIsolate, params);
+    secretShared.setAll(0, secret);
+    return 0;
   }
 
-  Future<Uint8List> deriveSessionSelfKeyAsync() async {
-    final params = _DeriveSessionKeyParams(secretShared, x25519PublicKeyEphemeral, x25519PublicKey);
-    return await compute(_deriveSessionSelfKeyIsolate, params);
+  Future<int> deriveSessionSelfKeyAsync() async {
+    final params = _DeriveSessionKeyParams(
+      secretShared,
+      x25519PublicKeyEphemeral,
+      x25519PublicKey,
+    );
+    final rootKey = await compute(_deriveSessionSelfKeyIsolate, params);
+    messageCtx.chainKey.setAll(0, rootKey);
+    return 0;
   }
 
-  Future<Uint8List> deriveSessionPeerKeyAsync(Uint8List x25519PublicKeyEphemeralPeer) async {
-    final params = _DeriveSessionKeyParams(secretShared, x25519PublicKeyEphemeralPeer, x25519PublicKeyPeer);
-    return await compute(_deriveSessionPeerKeyIsolate, params);
+  Future<int> deriveSessionPeerKeyAsync(
+    Uint8List x25519PublicKeyEphemeralPeer,
+  ) async {
+    final params = _DeriveSessionKeyParams(
+      secretShared,
+      x25519PublicKeyEphemeralPeer,
+      x25519PublicKeyPeer,
+    );
+    final rootKey = await compute(_deriveSessionPeerKeyIsolate, params);
+    messageCtx.chainKey.setAll(0, rootKey);
+    return 0;
   }
 
-  Future<_MessageKeyResult> deriveMessageKeyAsync(Uint8List salt) async {
+  Future<int> deriveMessageKeyAsync(Uint8List salt) async {
     final params = _DeriveMessageKeyParams(messageCtx.chainKey, salt);
-    return await compute(_deriveMessageKeyIsolate, params);
+    final result = await compute(_deriveMessageKeyIsolate, params);
+    messageCtx.messageKey.setAll(0, result.messageKey);
+    messageCtx.nonce.setAll(0, result.nonce);
+    return 0;
   }
 
   Future<Uint8List> encryptMessageAsync(Uint8List message, Uint8List aad) async {
-    final params = _EncryptMessageParams(message, aad, messageCtx.messageKey, messageCtx.nonce);
-    return await compute(_encryptMessageIsolate, params);
+    final params = _EncryptMessageParams(
+      message,
+      aad,
+      messageCtx.messageKey,
+      messageCtx.nonce.sublist(0,libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN) ,
+    );
+    return compute(_encryptMessageIsolate, params);
   }
 
-  Future<Uint8List> decryptMessageAsync(Uint8List ciphertext, Uint8List aad) async {
-    final params = _EncryptMessageParams(ciphertext, aad, messageCtx.messageKey, messageCtx.nonce);
-    return await compute(_decryptMessageIsolate, params);
+  Future<Uint8List> decryptMessageAsync(
+    Uint8List ciphertext,
+    Uint8List aad,
+  ) async {
+    final params = _EncryptMessageParams(
+      ciphertext,
+      aad,
+      messageCtx.messageKey,
+      messageCtx.nonce.sublist(0,libcrypt.BMC_PROTOCOL_GCM_NONCE_LEN),
+    );
+    return compute(_decryptMessageIsolate, params);
   }
 }
 
@@ -251,7 +324,8 @@ class BmcProtocolContext {
 
   /// Close session by ID
   void closeSession(String sessionId) {
-    _sessions.remove(sessionId);
+    final session = _sessions.remove(sessionId);
+    session?.close();
   }
 
   /// Get all active sessions
@@ -266,6 +340,9 @@ class BmcProtocolContext {
 
   /// Close all sessions
   void closeAllSessions() {
+    for (final session in _sessions.values) {
+      session.close();
+    }
     _sessions.clear();
   }
 }
