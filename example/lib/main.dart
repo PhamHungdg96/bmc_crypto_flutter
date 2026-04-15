@@ -8,11 +8,15 @@ import 'package:path/path.dart' as p;
 
 import 'package:bmc_cryptographic_flutter/bmc_cryptographic_flutter.dart' as libcrypt;
 import 'package:bmc_cryptographic_flutter/bmc_protocol.dart' as bmcprotocol;
+import 'package:bmc_cryptographic_flutter/bmc_crypto_worker.dart';
 import 'package:bmc_cryptographic_flutter/bmc_crypt_file.dart';
 
 final crypto = libcrypt.BmcCrypto();
+final worker = BmcCryptoWorker();
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await worker.start();
   runApp(MyApp());
 }
 
@@ -69,7 +73,7 @@ class _ProtocolTestPageState extends State<_ProtocolTestPage> {
 
     await _testSyncFunctions();
     await _testAsyncFunctions();
-    await _testGenerateKeyAsyncFunctions();
+    // await _testGenerateKeyAsyncFunctions();
 
     setState(() => _isLoading = false);
   }
@@ -229,7 +233,7 @@ class _FileEncryptPageState extends State<_FileEncryptPage> {
       final sw = Stopwatch()..start();
 
       final raw     = await File(src).readAsBytes();
-      final salt    = raw.sublist(0, 32);
+      final salt    = raw.sublist(0, 32);// có thể đính kèm cả khoá tạm thời công khai, signature... cho th mà chưa bắt tay
       final payload = raw.sublist(32);
       _appendLog('salt: ${salt}');
 
@@ -243,9 +247,9 @@ class _FileEncryptPageState extends State<_FileEncryptPage> {
       _appendLog('wrapKey: ${wrapKey}');
       final tmp     = await _encryptor.decryptFile(tmpIn.path, wrapKey);
 
-      // final decPath = '${tmp.path}.dec';
-      // await File(tmp.path).copy(decPath);
-      // await tmp.delete();
+      final decPath = '${tmp.path}.dec';
+      await File(tmp.path).copy(decPath);
+      await tmp.delete();
       // if (await tmpIn.exists()) await tmpIn.delete();
 
       sw.stop();
@@ -421,20 +425,20 @@ Future<void> funcGenKeyTestAsync() async {
     
     try {
       // Create contexts for long-term keys
-      final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
-      final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+      final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
+      final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
 
-      final aliceKeypair = await crypto.generateEd25519KeypairAsync();
-      final bobKeypair = await crypto.generateEd25519KeypairAsync();
+      final aliceKeypair = await worker.generateEd25519KeypairAsync();
+      final bobKeypair = await worker.generateEd25519KeypairAsync();
       
       aliceCtx.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
       aliceCtx.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
       bobCtx.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
       bobCtx.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
       
-      // Convert Ed25519 to X25519 using async functions
-      final aliceX25519 = await crypto.convertEd25519ToX25519Async(aliceCtx.ed25519PublicKey, aliceCtx.ed25519PrivateKey);
-      final bobX25519 = await crypto.convertEd25519ToX25519Async(bobCtx.ed25519PublicKey, bobCtx.ed25519PrivateKey);
+      // Convert Ed25519 to X25519 using worker
+      final aliceX25519 = await worker.convertEd25519ToX25519Async(aliceCtx.ed25519PublicKey, aliceCtx.ed25519PrivateKey);
+      final bobX25519 = await worker.convertEd25519ToX25519Async(bobCtx.ed25519PublicKey, bobCtx.ed25519PrivateKey);
       
       aliceCtx.x25519PublicKey.setAll(0, aliceX25519.publicKey);
       aliceCtx.x25519PrivateKey.setAll(0, aliceX25519.privateKey);
@@ -450,7 +454,7 @@ Future<void> funcGenKeyTestAsync() async {
       bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
       
       // Generate ephemeral keypair for Alice
-      final aliceEphemeral = await crypto.generateX25519KeypairAsync();
+      final aliceEphemeral = await worker.generateX25519KeypairAsync();
       alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
       alice.x25519PrivateKeyEphemeral.setAll(0, aliceEphemeral.privateKey);
       
@@ -481,22 +485,22 @@ Future<void> funcGenKeyTestAsync() async {
 Future<void> funcAliceBobTestAsync() async {
   print('\n--- ASYNC (ISOLATE) Alice-Bob Test ---');
 
-  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
+  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
 
-  final aliceKeypair = await crypto.generateEd25519KeypairAsync();
-  final bobKeypair = await crypto.generateEd25519KeypairAsync();
+  final aliceKeypair = await worker.generateEd25519KeypairAsync();
+  final bobKeypair = await worker.generateEd25519KeypairAsync();
 
   aliceCtx.ed25519PublicKey.setAll(0, aliceKeypair.publicKey);
   aliceCtx.ed25519PrivateKey.setAll(0, aliceKeypair.privateKey);
   bobCtx.ed25519PublicKey.setAll(0, bobKeypair.publicKey);
   bobCtx.ed25519PrivateKey.setAll(0, bobKeypair.privateKey);
 
-  final aliceX25519 = await crypto.convertEd25519ToX25519Async(
+  final aliceX25519 = await worker.convertEd25519ToX25519Async(
     aliceCtx.ed25519PublicKey,
     aliceCtx.ed25519PrivateKey,
   );
-  final bobX25519 = await crypto.convertEd25519ToX25519Async(
+  final bobX25519 = await worker.convertEd25519ToX25519Async(
     bobCtx.ed25519PublicKey,
     bobCtx.ed25519PrivateKey,
   );
@@ -515,7 +519,7 @@ Future<void> funcAliceBobTestAsync() async {
   alice.setPeerKey(bobCtx.ed25519PublicKey, bobCtx.x25519PublicKey);
   bob.setPeerKey(aliceCtx.ed25519PublicKey, aliceCtx.x25519PublicKey);
 
-  final aliceEphemeral = await crypto.generateX25519KeypairAsync();
+  final aliceEphemeral = await worker.generateX25519KeypairAsync();
   alice.x25519PublicKeyEphemeral.setAll(0, aliceEphemeral.publicKey);
   alice.x25519PrivateKeyEphemeral.setAll(0, aliceEphemeral.privateKey);
 
@@ -574,8 +578,8 @@ void print_hex(String title, Uint8List data) {
 
 void funcAliceBobTest(){
   // Create contexts for Alice and Bob (hold long-term keys)
-  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
-  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto);
+  final aliceCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
+  final bobCtx = bmcprotocol.BmcProtocolContext(crypto: crypto, worker: worker);
   
   // Initialize long-term keys
   aliceCtx.initLongTermKey();
