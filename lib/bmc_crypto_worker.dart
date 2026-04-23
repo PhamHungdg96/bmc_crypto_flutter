@@ -238,12 +238,18 @@ class BmcCryptoWorker {
   }
 
   Future<T> _dispatch<T>(_Op op, Object params) {
-    assert(_sendPort != null, 'Worker not started — call start() first.');
+    if (_sendPort == null) {
+      throw StateError('Worker not started — call start() first.');
+    }
     final id = _nextId++;
+    if (_nextId >= 0x7FFFFFFF) _nextId = 0; // Reset periodically
     final c = Completer<Object?>();
     _pending[id] = c;
     _sendPort!.send(_Request(id, op, params));
-    return c.future.then((v) => v as T);
+    return c.future
+      .timeout(Duration(seconds: 30), 
+        onTimeout: () => throw TimeoutException('Crypto operation timeout'))
+      .then((v) => v as T);
   }
 
   // -------------------- Public API --------------------

@@ -73,6 +73,7 @@ class _ProtocolTestPageState extends State<_ProtocolTestPage> {
 
     await _testSyncFunctions();
     await _testAsyncFunctions();
+    await funcAliceBobTestAsync10000();
     // await _testGenerateKeyAsyncFunctions();
 
     setState(() => _isLoading = false);
@@ -419,7 +420,7 @@ Future<void> funcGenKeyTestAsync() async {
   int successCount = 0;
   int errorCount = 0;
   
-  while (testCount < 10) {
+  while (testCount < 10000) {
     testCount++;
     print('\n=== Test iteration $testCount ===');
     
@@ -566,6 +567,49 @@ Future<void> funcAliceBobTestAsync() async {
   final firstPlainText = await bob.decryptMessageAsync(firstCipherText, aad);
   print_hex("bob first plain text (async)", firstPlainText);
   print("✅ bob first plain text (async): ${utf8.decode(firstPlainText)}");
+
+  final isMessageMatch = const ListEquality<int>().equals(firstMessage, firstPlainText);
+  if (!isMessageMatch) {
+    print("❌ Async test failed: decrypted text does not match original message");
+    print_hex("original message", firstMessage);
+    print_hex("decrypted message", firstPlainText);
+    throw Exception('Async Alice-Bob test failed: input/output mismatch');
+  }
+
+  print("✅ Async test passed: decrypted text matches original input");
+  
+}
+
+Future<void> funcAliceBobTestAsync10000() async {
+  print('\n--- ASYNC (ISOLATE) Alice-Bob Stress Test (10000) ---');
+
+  const int totalRuns = 10000;
+  int successCount = 0;
+  int errorCount = 0;
+  final sw = Stopwatch()..start();
+
+  for (int i = 1; i <= totalRuns; i++) {
+    try {
+      await funcAliceBobTestAsync();
+      successCount++;
+    } catch (e, st) {
+      errorCount++;
+      print('❌ Run $i failed: $e');
+      print('Stack trace: $st');
+    }
+
+    if (i % 100 == 0 || i == totalRuns) {
+      print('Progress: $i/$totalRuns | success: $successCount | error: $errorCount');
+    }
+  }
+
+  sw.stop();
+  print('\n=== Alice-Bob Async Stress Summary ===');
+  print('Total runs: $totalRuns');
+  print('Successful: $successCount');
+  print('Errors: $errorCount');
+  print('Success rate: ${(successCount / totalRuns * 100).toStringAsFixed(2)}%');
+  print('Elapsed: ${sw.elapsedMilliseconds}ms');
 }
 
 void print_hex(String title, Uint8List data) {
